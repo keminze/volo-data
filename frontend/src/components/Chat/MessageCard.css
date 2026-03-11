@@ -1,0 +1,41 @@
+.collapse-wrapper {
+  overflow: hidden;
+  transition: all 0.4s ease-in-out;
+  opacity: 1;
+  max-height: 560px; /* 600px - 标题高度(40px) */
+  overflow-y: auto; /* ✅ 启用垂直滚动 */
+}
+
+.collapse-wrapper.collapsed {
+  opacity: 0;
+  max-height: 0;
+  transform: translateY(-4px);
+}
+
+.collapse-wrapper.expanded {
+  opacity: 1;
+  max-height: 2000px;
+  transform: translateY(0);
+}
+
+/* 自定义横向滚动条 - 淡色风格 */
+.chart-scrollbar::-webkit-scrollbar {
+  width: 8px; /* 纵向滚动条宽度 */
+  height: 8px; /* 横向滚动条高度 */
+}
+
+/* 滚动条轨道 */
+.chart-scrollbar::-webkit-scrollbar-track {
+  background: transparent; /* 轨道背景透明 */
+}
+
+/* 滑块 - 共同样式 */
+.chart-scrollbar::-webkit-scrollbar-thumb {
+  background: #cdcbcb6b; /* 滑块颜色：淡灰色 */
+  border-radius: 4px;
+}
+
+/* 滑块悬停时的颜色变化 */
+.chart-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a0a0a0a8; /* 悬停时稍深一点 */
+}

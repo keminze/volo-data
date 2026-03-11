@@ -1,0 +1,54 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: volo_data_backend
+    volumes:
+      - ./uploaded_sqlite_dbs:/app/uploaded_sqlite_dbs
+      # 如果需要持久化日志
+      - ./logs:/app/logs
+    ports:
+      - "9000:9000"
+    depends_on:
+      - chromadb
+      - redis
+    networks:
+      - volo_net
+  
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: volo_data_frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - volo_net
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    restart: always
+    networks:
+      - volo_net
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    volumes:
+      - ./chroma-data:/data
+    ports:
+      - "8000:8000"
+    restart: always
+    networks:
+      - volo_net
+
+networks:
+  volo_net:
+    driver: bridge

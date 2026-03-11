@@ -1,0 +1,28 @@
+[flake8]
+max-line-length = 100
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    env,
+    build,
+    dist,
+    *.egg-info,
+    .eggs,
+    chroma-data,
+    redis-data,
+    uploaded_sqlite_dbs,
+    logs,
+    alembic/versions
+
+ignore =
+    E203,
+    E501,
+    W503,
+    E701,
+
+per-file-ignores =
+    __init__.py:F401
+
+max-complexity = 10
