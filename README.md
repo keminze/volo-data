@@ -3,7 +3,7 @@
 [English](./README_EN.md) | [中文](./README.md)
 
 <p align="center">
-  <img src="./frontend/src/app/favicon.ico" width="40">
+  <img src="./frontend/src/app/favicon.ico" width="80">
 </p>
 
 <p align="center">
