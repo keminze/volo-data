@@ -2,29 +2,31 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function Home() {
-  const fullText = "欢迎使用 Volo Data 智能数据分析助手";
+  const { t } = useTranslation();
+  const fullText = t("home.welcome");
   const [displayedText, setDisplayedText] = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     let index = 0;
+    const text = t("home.welcome");
     const interval = setInterval(() => {
-      setDisplayedText(fullText.slice(0, index + 1));
+      setDisplayedText(text.slice(0, index + 1));
       index++;
-      if (index === fullText.length) {
+      if (index === text.length) {
         clearInterval(interval);
         setTimeout(() => setShowGuide(true), 600);
       }
     }, 120);
     return () => clearInterval(interval);
-  }, []);
+  }, [t]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-white text-black px-6">
-
-      {/* ✅ 添加图标 */}
+      {/* 添加图标 */}
       <Image
         src="/favicon.ico"
         alt="logo"
@@ -42,12 +44,11 @@ export default function Home() {
       {/* 使用指南（淡入动画） */}
       {showGuide && (
         <div className="mt-8 text-gray-600 text-sm sm:text-base leading-relaxed whitespace-pre-line text-left animate-fadeIn">
-          快速开始：{"\n"}
-          1、点击侧边栏的 <code className="bg-gray-100 px-1 rounded">数据源</code>，
-          可创建数据源和使用示例数据源{"\n"}
-          2、将鼠标移动到数据源块上，点击
-          <code className="bg-gray-100 px-1 rounded">快速新建数据源</code>，
-          即可开始提问
+          {t("home.quickStart")}{"\n"}
+          {t("home.step1")} <code className="bg-gray-100 px-1 rounded">{t("home.dataSource")}</code>
+          {t("home.step1Suffix")}{"\n"}
+          {t("home.step2")} <code className="bg-gray-100 px-1 rounded">{t("home.quickCreate")}</code>
+          {t("home.step2Suffix")}
         </div>
       )}
 

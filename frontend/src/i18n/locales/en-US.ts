@@ -1,0 +1,75 @@
+export default {
+  // Sidebar
+  sidebar: {
+    home: "Home",
+    dataSources: "Data Sources",
+    newChat: "New Chat",
+    history: "Chat History",
+    collapse: "Collapse",
+    expand: "Expand",
+  },
+  // Home page
+  home: {
+    welcome: "Welcome to Volo Data - Smart Data Analysis Assistant",
+    quickStart: "Quick Start:",
+    step1: "1. Click",
+    dataSource: "Data Sources",
+    step1Suffix: " in the sidebar to create or use sample data sources",
+    step2: "2. Hover over a data source card and click",
+    quickCreate: "Quick Create",
+    step2Suffix: " to start asking questions",
+  },
+  // Data sources page
+  dataSources: {
+    title: "My Data Sources",
+    search: "Search data sources...",
+    create: "Create Data Source",
+    delete: "Delete",
+    edit: "Edit",
+    confirmDelete: "Are you sure you want to delete this data source?",
+    cancel: "Cancel",
+    confirm: "Confirm",
+    filter: "Filter Type",
+    noDataSource: "No data sources available",
+  },
+  // Chat
+  chat: {
+    placeholder: "Enter your question... (Shift+Enter for new line, Enter to send)",
+    send: "Send",
+    thinking: "Thinking...",
+    newChat: "New Chat",
+    deleteChat: "Delete Chat",
+    renameChat: "Rename",
+    enterChatName: "Please enter chat name",
+    selectDataSource: "Please select a data source",
+    selectDataSourceAndCreate: "Select a data source and create a new chat session",
+    createSuccess: "Chat created successfully",
+    createError: "Failed to create, please try again later",
+    chatName: "Chat Name",
+    enterChatNamePlaceholder: "Enter chat name",
+    selectDataSourcePlaceholder: "Select a data source",
+    description: "Description",
+    enterDescription: "Enter description (optional)",
+    create: "Create",
+    creating: "Creating...",
+    example: "Example",
+    noDataSource: "No data sources available",
+  },
+  // Common
+  common: {
+    save: "Save",
+    cancel: "Cancel",
+    confirm: "Confirm",
+    delete: "Delete",
+    edit: "Edit",
+    loading: "Loading...",
+    error: "Error",
+    success: "Success",
+  },
+  // Language switcher
+  language: {
+    switch: "Switch Language",
+    zh: "中文",
+    en: "English",
+  },
+};

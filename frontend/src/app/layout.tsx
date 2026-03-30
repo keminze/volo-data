@@ -1,7 +1,6 @@
 import "./globals.css";
 import Sidebar from "@/components/Sidebar/Sidebar";
-import { ConfigProvider } from "antd";
-import zhCN from "antd/locale/zh_CN";
+import { Providers } from "@/components/Providers";
 
 export const metadata = {
   title: "VoloData",
@@ -10,16 +9,16 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className="flex h-screen">
-        {/* 左侧侧边栏 */}
-        <Sidebar />
-        {/* 右侧内容区 */}
-        <main className="flex-1 bg-gray-50">
-          <ConfigProvider locale={zhCN}>
+        <Providers>
+          {/* 左侧侧边栏 */}
+          <Sidebar />
+          {/* 右侧内容区 */}
+          <main className="flex-1 bg-gray-50">
             {children}
-          </ConfigProvider>
-        </main>
+          </main>
+        </Providers>
       </body>
     </html>
   );

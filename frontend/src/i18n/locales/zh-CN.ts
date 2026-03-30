@@ -1,0 +1,75 @@
+export default {
+  // Sidebar
+  sidebar: {
+    home: "主页",
+    dataSources: "数据源",
+    newChat: "新建聊天",
+    history: "历史聊天",
+    collapse: "收起",
+    expand: "展开",
+  },
+  // Home page
+  home: {
+    welcome: "欢迎使用 Volo Data 智能数据分析助手",
+    quickStart: "快速开始：",
+    step1: "1、点击侧边栏的",
+    dataSource: "数据源",
+    step1Suffix: "，可创建数据源和使用示例数据源",
+    step2: "2、将鼠标移动到数据源块上，点击",
+    quickCreate: "快速新建数据源",
+    step2Suffix: "，即可开始提问",
+  },
+  // Data sources page
+  dataSources: {
+    title: "数据源管理",
+    search: "搜索数据源...",
+    create: "新建数据源",
+    delete: "删除",
+    edit: "编辑",
+    confirmDelete: "确认删除此数据源吗？",
+    cancel: "取消",
+    confirm: "确认",
+    filter: "筛选类型",
+    noDataSource: "暂无可用数据源",
+  },
+  // Chat
+  chat: {
+    placeholder: "请输入您的问题...(Shift+Enter换行，Enter发送)",
+    send: "发送",
+    thinking: "思考中...",
+    newChat: "新建聊天",
+    deleteChat: "删除对话",
+    renameChat: "重命名",
+    enterChatName: "请输入聊天名称",
+    selectDataSource: "请选择数据源",
+    selectDataSourceAndCreate: "请选择数据源并创建新的聊天会话",
+    createSuccess: "聊天创建成功",
+    createError: "创建失败，请稍后重试",
+    chatName: "聊天名称",
+    enterChatNamePlaceholder: "请输入聊天名称",
+    selectDataSourcePlaceholder: "请选择数据源",
+    description: "聊天描述",
+    enterDescription: "请输入描述（可选）",
+    create: "创建",
+    creating: "创建中...",
+    example: "示例",
+    noDataSource: "暂无可用数据源",
+  },
+  // Common
+  common: {
+    save: "保存",
+    cancel: "取消",
+    confirm: "确认",
+    delete: "删除",
+    edit: "编辑",
+    loading: "加载中...",
+    error: "错误",
+    success: "成功",
+  },
+  // Language switcher
+  language: {
+    switch: "切换语言",
+    zh: "中文",
+    en: "English",
+  },
+};
