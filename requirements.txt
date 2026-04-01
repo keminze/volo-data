@@ -68,7 +68,10 @@ jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.25.1
 jsonschema-specifications==2025.9.1
-jwt==1.4.0
+PyJWT==2.8.0
+passlib==1.7.4
+bcrypt==4.2.1
+python-jose[cryptography]==3.3.0
 langchain==1.2.0
 langchain-classic==1.0.0
 langchain-community==0.4.1

@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api/request";
+import { apiRequest, getToken } from "@/lib/api/request";
 import { API_BASE } from "@/lib/api/request";
 import type { Message } from "@/components/Chat/types";
 
@@ -16,7 +16,6 @@ export interface ChatResponse {
 
 export interface CreateChatRequest {
   name: string;
-  user_id: string;
   connection_id: number;
   description?: string;
 }
@@ -24,11 +23,6 @@ export interface CreateChatRequest {
 export interface CreateChatResponse {
   message: string;
   conversation_id: number;
-}
-
-export interface UpdateChatNameRequest {
-  user_id: string;
-  name: string;
 }
 
 export interface MessageResponse {
@@ -52,20 +46,12 @@ export async function createChat(request: CreateChatRequest) {
 
 /**
  * 🟣 获取聊天列表
- * @param userId 当前用户 ID
  */
-export async function listChat(userId: string) {
-  return apiRequest<ChatResponse[]>(`/conversations/list?user_id=${userId}`, {
+export async function listChat() {
+  return apiRequest<ChatResponse[]>("/conversations/list", {
     method: "GET",
   });
 }
-
-/**
- * 🔴 获取单个聊天信息
- * @param chatId 聊天会话 ID
- * @param userId 当前用户 ID（默认 1）
- */
-
 
 /**
  * 🔵 获取指定会话的消息列表
@@ -81,26 +67,25 @@ export async function listChatMessages(chatId: number) {
 /**
  * 🟠 更新聊天名称
  * @param chatId 聊天会话 ID
- * @param request 更新请求体（包含 user_id 和新名称）
+ * @param name 新名称
  */
 export async function updateChatName(
   chatId: number,
-  request: UpdateChatNameRequest
+  name: string
 ) {
   return apiRequest<{ message: string }>(`/conversations/update/${chatId}`, {
     method: "PUT",
-    body: request,
+    body: { name },
   });
 }
 
 /**
  * 🔴 删除聊天
  * @param chatId 聊天会话 ID
- * @param userId 当前用户 ID（默认 1）
  */
-export async function deleteChat(chatId: number, userId: string) {
+export async function deleteChat(chatId: number) {
   return apiRequest<{ message: string }>(
-    `/conversations/delete/${chatId}?user_id=${userId}`,
+    `/conversations/delete/${chatId}`,
     {
       method: "DELETE",
     }
@@ -109,7 +94,6 @@ export async function deleteChat(chatId: number, userId: string) {
 
 export async function submitStreamTask(
       payload: {
-        user_id: string;
         conversation_id: number;
         input: string;
         allow_llm_to_see_data: boolean;
@@ -123,7 +107,7 @@ export async function submitStreamTask(
 }
 
 export async function listenStreamTask(
-  task_id: string,  // 新增 task_id
+  task_id: string,
   handlers: {
     onNodeDone?: (data: any) => void;
     onNodeMessage?: (data: any) => void;
@@ -132,13 +116,20 @@ export async function listenStreamTask(
   }
 ) {
   try {
-    // 修改了请求的 URL 地址
+    const token = getToken ? getToken() : null;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    } else if (process.env.NEXT_PUBLIC_BACKEND_API_KEY) {
+      headers["x-api-key"] = process.env.NEXT_PUBLIC_BACKEND_API_KEY;
+    }
+
     const response = await fetch(`${API_BASE}/generate/task_stream/${task_id}`, {
-      method: "GET",  // GET 请求（之前是 POST 请求）
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.NEXT_PUBLIC_BACKEND_API_KEY || "",
-      },
+      method: "GET",
+      headers,
     });
 
     if (!response.ok || !response.body) {
@@ -149,7 +140,7 @@ export async function listenStreamTask(
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
 
-    // 🔁 持续读取后端的SSE流
+    // 持续读取后端的SSE流
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;

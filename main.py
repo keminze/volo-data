@@ -4,10 +4,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.database import del_single_table, init_db
+from config.database import init_db
 from middlewares.api_key_middleware import APIKeyAuthMiddleware
 from middlewares.logging import LoggingMiddleware
-from routers import connection, conversation, database, generate, log
+from routers import auth, connection, conversation, database, generate, log
 
 app = FastAPI()
 
@@ -26,7 +26,7 @@ app.add_middleware(LoggingMiddleware)
 async def on_startup():
     # await del_db()
     # print("重置数据库")
-    await del_single_table("messages")
+    # await del_single_table("messages")
     await init_db()
     print("数据库初始化完成")
 
@@ -36,6 +36,7 @@ app.include_router(conversation.router, prefix="/conversations", tags=["对话�
 app.include_router(generate.router, prefix="/generate", tags=["任务生成"])
 app.include_router(database.router, prefix="/database", tags=["系统数据库管理"])
 app.include_router(log.router, prefix="/log", tags=["日志管理"])
+app.include_router(auth.router, prefix="/auth", tags=["用户认证"])
 
 
 @app.get("/health", tags=["服务检测"])

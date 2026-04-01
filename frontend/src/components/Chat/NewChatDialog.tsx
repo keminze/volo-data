@@ -12,9 +12,7 @@ import { message } from "antd";
 import { createChat } from "@/lib/api/chat";
 import { useChatStore } from "@/store/chatStore";
 import { useRouter } from "next/navigation";
-import { useDataSourceStore } from "@/store/dataSourceStore";
-import { useExampleDataSourceStore } from "@/store/dataSourceStore";
-import { getOrCreateUUID } from "@/lib/utils";
+import { useDataSourceStore, useExampleDataSourceStore } from "@/store/dataSourceStore";
 
 interface Props {
   open: boolean;
@@ -61,7 +59,6 @@ export function NewChatDialog({ open, onOpenChange }: Props) {
       const res = await createChat({
         name: form.name,
         description: form.description,
-        user_id: getOrCreateUUID(),
         connection_id: Number(form.connection_id),
       });
 

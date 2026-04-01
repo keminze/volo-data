@@ -1,12 +1,39 @@
 export const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_BASE!;
 const API_KEY = process.env.NEXT_PUBLIC_BACKEND_API_KEY; // ✅ 从环境变量读取 API key
 
+// 用于在请求时获取 token
+let tokenGetter: (() => string | null) | null = null;
+
+export function setTokenGetter(getter: () => string | null) {
+  tokenGetter = getter;
+}
+
+export function getToken(): string | null {
+  // 优先使用 tokenGetter
+  if (tokenGetter) {
+    const token = tokenGetter();
+    if (token) return token;
+  }
+  // 备选：从 localStorage 直接读取（处理 persist 加载延迟）
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("auth-storage");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.state?.token || null;
+      }
+    } catch {}
+  }
+  return null;
+}
+
 export type ApiRequestOptions = {
   method?: string;
   headers?: Record<string, string>;
   body?: any;
   // 你可以进一步添加信号、credentials 等字段
   signal?: AbortSignal | null;
+  useAuth?: boolean; // 是否使用 JWT 认证，默认 true
 };
 
 /**
@@ -24,9 +51,19 @@ export async function apiRequest<T = any>(path: string, options: ApiRequestOptio
 
   // console.log(process.env.NEXT_PUBLIC_BACKEND_API_KEY);
 
-  if (API_KEY) {
+  // JWT 认证优先于 API Key
+  const useAuth = options.useAuth !== false;
+  if (useAuth) {
+    const token = getToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+
+  // 如果没有 JWT token，使用 API Key 作为备选
+  if (!headers["Authorization"] && API_KEY) {
     headers["x-api-key"] = API_KEY;
-  } else {
+  } else if (!headers["Authorization"] && !API_KEY) {
     console.warn("[apiRequest] 环境变量 NEXT_PUBLIC_BACKEND_API_KEY 未设置！");
   }
 

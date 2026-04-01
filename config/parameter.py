@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 
 class DBConnectRequest(BaseModel):
-    user_id: Optional[str] = None
     name: Optional[str] = None
     db_type: Optional[str] = None
     db_description: Optional[str] = None
@@ -22,7 +21,6 @@ class DBConnectRequest(BaseModel):
     @classmethod
     def as_form(
         cls,
-        user_id: str = Form(..., description="用户 ID"),
         name: str = Form(..., description="数据源名称"),
         db_type: str = Form(
             ..., description="数据源类型，支持 sqlite/mysql/postgres/oracle/duckdb/excel/csv"
@@ -45,7 +43,6 @@ class DBConnectRequest(BaseModel):
         ),
     ):
         return cls(
-            user_id=user_id,
             name=name,
             db_type=db_type,
             db_description=db_description,
@@ -93,7 +90,7 @@ class DBConnectRequest(BaseModel):
 
 
 class UpdateDBConnectRequest(BaseModel):
-    user_id: str = Field(..., description="用户 ID")
+    user_id: str | None = Field(default=None, description="用户 ID")
 
     new_name: str | None = Field(default=None, description="新的数据源名称")
 
@@ -103,14 +100,13 @@ class UpdateDBConnectRequest(BaseModel):
 
 
 class ConversationCreate(BaseModel):
-    user_id: str = Field(..., description="用户 ID")
     name: str | None = Field(None, description="对话名称")
     connection_id: Optional[int] = Field(None, description="关联的数据源连接 ID")
     description: Optional[str] = Field(None, description="任务背景")
 
 
 class GenerateRequest(BaseModel):
-    user_id: str = Field(..., description="用户 ID")
+    # user_id 已从 JWT token 中获取
     conversation_id: int = Field(..., description="对话 ID")
     input: str = Field(..., description="用户查询输入")
     allow_llm_to_see_data: bool = Field(False, description="是否允许大语言模型访问数据")

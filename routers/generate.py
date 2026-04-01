@@ -10,7 +10,9 @@ from config.database import AsyncSession, async_session, get_db
 from config.logging_config import logger
 from config.models import Conversation, DBConnection, Message
 from config.parameter import GenerateRequest
+from dependencies import get_current_user
 from redis_client import redis_client
+from services.auth import User
 from services.graph_sse import graph as graph_sse
 
 router = APIRouter()
@@ -66,14 +68,17 @@ async def background_graph_task(task_id: str, conversation_id: int, state: dict,
 
 @router.post("/stream", summary="流式调用生成接口")
 async def run_query_stream(
-    req: GenerateRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+    req: GenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: "User" = Depends(get_current_user),
 ):
     try:
         # 从数据库加载对话历史
         result = await db.execute(
             select(Conversation)
             .where(Conversation.id == req.conversation_id)
-            .where(Conversation.user_id == req.user_id)
+            .where(Conversation.user_id == str(current_user.id))
         )
         conversation = result.scalars().first()
         if not conversation:

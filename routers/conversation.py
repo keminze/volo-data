@@ -7,6 +7,8 @@ from config.database import get_db
 from config.logging_config import logger
 from config.models import Conversation, DBConnection, Message
 from config.parameter import ConversationCreate
+from dependencies import get_current_user
+from services.auth import User
 from services.tools import generate_chart_tool
 
 # from sqlalchemy.orm import joinedload
@@ -16,17 +18,21 @@ router = APIRouter()
 
 
 @router.post("/create", summary="创建新的对话")
-async def create_conversation(req: ConversationCreate, db: AsyncSession = Depends(get_db)):
+async def create_conversation(
+    req: ConversationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         conn = await db.execute(select(DBConnection).where(DBConnection.id == req.connection_id))
         connection = conn.scalar_one_or_none()
         if not connection:
             return JSONResponse(status_code=404, content="Not found connection")
-        if connection.user_id not in [req.user_id, "example"]:
+        if connection.user_id != str(current_user.id):
             return JSONResponse(status_code=404, content="Not found connection")
 
         new_conversation = Conversation(
-            user_id=req.user_id,
+            user_id=str(current_user.id),
             # collection_prefix=collection_prefix,
             name=req.name,
             connection_id=req.connection_id,
@@ -36,7 +42,7 @@ async def create_conversation(req: ConversationCreate, db: AsyncSession = Depend
         await db.commit()
         await db.refresh(new_conversation)
         logger.info(
-            f"Created new conversation with ID: {new_conversation.id} for user_id: {req.user_id}"
+            f"Created new conversation with ID: {new_conversation.id} for user_id: {current_user.id}"
         )
         return JSONResponse(
             content={"message": "conversation created", "conversation_id": new_conversation.id}
@@ -47,15 +53,18 @@ async def create_conversation(req: ConversationCreate, db: AsyncSession = Depend
 
 
 @router.get("/list", summary="列出用户所有对话")
-async def list_conversations(user_id: str, db: AsyncSession = Depends(get_db)):
+async def list_conversations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         result = await db.execute(
             select(Conversation)
-            .where(Conversation.user_id == user_id)
+            .where(Conversation.user_id == str(current_user.id))
             .order_by(Conversation.created_at.desc())
         )
         conversations = result.scalars().all()
-        logger.info(f"Listed {len(conversations)} conversations for user_id: {user_id}")
+        logger.info(f"Listed {len(conversations)} conversations for user_id: {current_user.id}")
         return [c.get_info() for c in conversations]
     except Exception as e:
         logger.error(f"Error listing conversations: {str(e)}", exc_info=True)
@@ -64,13 +73,15 @@ async def list_conversations(user_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.delete("/delete/{conversation_id}", summary="删除对话")
 async def delete_conversation(
-    conversation_id: int, user_id: str, db: AsyncSession = Depends(get_db)
+    conversation_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         result = await db.execute(
             select(Conversation)
             .where(Conversation.id == conversation_id)
-            .where(Conversation.user_id == user_id)
+            .where(Conversation.user_id == str(current_user.id))
         )
         conversation = result.scalar_one_or_none()
         if not conversation:
@@ -86,12 +97,16 @@ async def delete_conversation(
 
 
 @router.get("/{conversation_id}", summary="获取对话详情")
-async def get_conversation(conversation_id: int, user_id: int, db: AsyncSession = Depends(get_db)):
+async def get_conversation(
+    conversation_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         result = await db.execute(
             select(Conversation)
             .where(Conversation.id == conversation_id)
-            .where(Conversation.user_id == user_id)
+            .where(Conversation.user_id == str(current_user.id))
         )
         conversation = result.scalar_one_or_none()
         if not conversation:
@@ -107,13 +122,16 @@ async def get_conversation(conversation_id: int, user_id: int, db: AsyncSession 
 
 @router.put("/update/{conversation_id}", summary="更新对话配置")
 async def update_conversation(
-    conversation_id: int, req: ConversationCreate, db: AsyncSession = Depends(get_db)
+    conversation_id: int,
+    req: ConversationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         result = await db.execute(
             select(Conversation)
             .where(Conversation.id == conversation_id)
-            .where(Conversation.user_id == req.user_id)
+            .where(Conversation.user_id == str(current_user.id))
         )
         conversation = result.scalar_one_or_none()
         # 检查对话是否存在

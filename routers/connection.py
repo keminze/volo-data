@@ -11,6 +11,8 @@ from config.database import get_db
 from config.logging_config import logger
 from config.models import DBConnection
 from config.parameter import DBConnectRequest, UpdateDBConnectRequest
+from dependencies import get_current_user
+from services.auth import User
 
 # from services.auth import get_current_user_idconnection
 from services.db import (
@@ -224,7 +226,9 @@ async def connect_db(
 
 @router.post("/init", summary="初始化数据源，保存和训练数据源信息")
 async def init_connection(
-    req: DBConnectRequest = Depends(DBConnectRequest.as_form), db: AsyncSession = Depends(get_db)
+    req: DBConnectRequest = Depends(DBConnectRequest.as_form),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         try:
@@ -361,7 +365,7 @@ async def init_connection(
         # 保存到 ORM
         collection_prefix = str(uuid.uuid4())
         conn_info = DBConnection(
-            user_id=req.user_id,
+            user_id=str(current_user.id),
             name=req.name,
             db_description=req.db_description,
             db_type=req.db_type,
@@ -405,12 +409,15 @@ async def init_connection(
 
 
 @router.get("/list", summary="列出用户所有连接")
-async def list_connections(user_id: str, db: AsyncSession = Depends(get_db)):
-    logger.info(f"Listing connections for user_id: {user_id}")
+async def list_connections(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    logger.info(f"Listing connections for user_id: {current_user.id}")
     try:
         result = await db.execute(
             select(DBConnection)
-            .where(DBConnection.user_id == user_id)
+            .where(DBConnection.user_id == str(current_user.id))
             .order_by(DBConnection.created_at.desc())
         )
         rows = result.scalars().all()
@@ -422,14 +429,18 @@ async def list_connections(user_id: str, db: AsyncSession = Depends(get_db)):
 
 # 列出单个连接信息
 @router.get("/info/{connection_id}", summary="获取单个连接信息")
-async def get_connection_info(connection_id: int, user_id: str, db: AsyncSession = Depends(get_db)):
-    logger.info(f"Getting connection info for connection_id: {connection_id}, user_id: {user_id}")
+async def get_connection_info(
+    connection_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    logger.info(f"Getting connection info for connection_id: {connection_id}, user_id: {current_user.id}")
     try:
         result = await db.execute(select(DBConnection).where(DBConnection.id == connection_id))
         conn = result.scalar_one_or_none()
         if not conn:
             return JSONResponse(status_code=404, content="Not found connection")
-        if conn.user_id not in [user_id, "example"]:
+        if conn.user_id != str(current_user.id):
             return JSONResponse(status_code=404, content="Not found connection")
 
         logger.info(f"Retrieved connection info for connection_id: {connection_id}")
@@ -440,14 +451,16 @@ async def get_connection_info(connection_id: int, user_id: str, db: AsyncSession
 
 
 @router.delete("/disconnect/{connection_id}", summary="删除数据源连接及其相关文件")
-async def disconnect_db(connection_id: int, user_id: str, db: AsyncSession = Depends(get_db)):
+async def disconnect_db(
+    connection_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
-        # if user_id == "example":
-        #     return JSONResponse(status_code=403, content={"message":"示例数据源，无法删除"})
         result = await db.execute(
             select(DBConnection)
             .where(DBConnection.id == connection_id)
-            .where(DBConnection.user_id == user_id)
+            .where(DBConnection.user_id == str(current_user.id))
         )
         conn = result.scalar_one_or_none()
         if not conn:
@@ -477,15 +490,16 @@ async def disconnect_db(connection_id: int, user_id: str, db: AsyncSession = Dep
 # 修改数据源连接的名字和描述
 @router.post("/update/{connection_id}", summary="更新数据源连接信息")
 async def update_connection_info(
-    connection_id: int, req: UpdateDBConnectRequest, db: AsyncSession = Depends(get_db)
+    connection_id: int,
+    req: UpdateDBConnectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        if req.user_id == "example":
-            return JSONResponse(status_code=403, content={"message": "示例数据源，无法修改"})
         result = await db.execute(
             select(DBConnection)
             .where(DBConnection.id == connection_id)
-            .where(DBConnection.user_id == req.user_id)
+            .where(DBConnection.user_id == str(current_user.id))
         )
         conn = result.scalar_one_or_none()
         if not conn:

@@ -17,11 +17,7 @@ export interface DataSourceResponse {
 }
 
 /**
- * 🟢 创建（连接）数据源
- * @param formData 表单数据（包含数据库连接信息）
- * @returns 返回新建连接的 message 与 connection_id
- *
- * ⚠️ 注意：该接口使用 multipart/form-data 上传，因此 `apiRequest` 不需要自动序列化 JSON。
+ * 🟢 连接数据源，获取表列表
  */
 export async function getTables(formData: FormData) {
   return apiRequest<{ message: string; tables: Array<Record<string,string>> }>("/connections/connect", {
@@ -30,13 +26,8 @@ export async function getTables(formData: FormData) {
   });
 }
 
-
 /**
- * 🟢 创建（连接）数据源
- * @param formData 表单数据（包含数据库连接信息）
- * @returns 返回新建连接的 message 与 connection_id
- *
- * ⚠️ 注意：该接口使用 multipart/form-data 上传，因此 `apiRequest` 不需要自动序列化 JSON。
+ * 🟢 创建数据源
  */
 export async function createConnection(formData: FormData) {
   return apiRequest<{ message: string; connection_id: number }>("/connections/init", {
@@ -47,36 +38,28 @@ export async function createConnection(formData: FormData) {
 
 /**
  * 🟣 获取数据源列表
- * @param userId 当前用户ID（默认1）
  */
-export async function listConnections(userId: string) {
-  return apiRequest<DataSourceResponse[]>(`/connections/list?user_id=${userId}`, {
+export async function listConnections() {
+  return apiRequest<DataSourceResponse[]>("/connections/list", {
     method: "GET",
   });
 }
 
 /**
  * 🟣 获取单个数据源信息
- * @param userId 当前用户ID（默认1）
- * @param connectionId 数据源ID
  */
-export async function getConnectionInfo(connectionId: number, userId: string) {
-  return apiRequest<DataSourceResponse>(`/connections/info/${connectionId}?user_id=${userId}`, {
+export async function getConnectionInfo(connectionId: number) {
+  return apiRequest<DataSourceResponse>(`/connections/info/${connectionId}`, {
     method: "GET",
   });
 }
 
 /**
- * 🔴 删除（断开）数据源
- * @param connectionId 数据源ID
- * @param userId 当前用户ID（默认1）
+ * 🔴 删除数据源
  */
-export async function deleteConnection(
-  connectionId: number,
-  userId: string
-) {
+export async function deleteConnection(connectionId: number) {
   return apiRequest<{ message: string }>(
-    `/connections/disconnect/${connectionId}?user_id=${userId}`,
+    `/connections/disconnect/${connectionId}`,
     {
       method: "DELETE",
     }
@@ -85,12 +68,10 @@ export async function deleteConnection(
 
 /**
  * 🔴 修改数据源信息
- * @param connectionId 数据源ID
- * @param request 更新请求体
  */
 export async function updateConnectionInfo(
   connectionId: number,
-  request: { user_id?: string; new_name?: string; new_description?: string },
+  request: { new_name?: string; new_description?: string },
 ) {
   return apiRequest<{ message: string }>(
     `/connections/update/${connectionId}`,

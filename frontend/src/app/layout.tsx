@@ -1,6 +1,7 @@
 import "./globals.css";
-import Sidebar from "@/components/Sidebar/Sidebar";
 import { Providers } from "@/components/Providers";
+import AuthCheck from "@/components/AuthCheck";
+import AuthLayout from "@/components/AuthLayout";
 
 export const metadata = {
   title: "VoloData",
@@ -12,12 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN" suppressHydrationWarning>
       <body className="flex h-screen">
         <Providers>
-          {/* 左侧侧边栏 */}
-          <Sidebar />
-          {/* 右侧内容区 */}
-          <main className="flex-1 bg-gray-50">
-            {children}
-          </main>
+          <AuthCheck>
+            <AuthLayout>{children}</AuthLayout>
+          </AuthCheck>
         </Providers>
       </body>
     </html>

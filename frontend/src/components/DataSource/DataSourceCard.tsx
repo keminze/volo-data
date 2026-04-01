@@ -5,18 +5,19 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Database, FileText, Info, MessageCircle, Trash2, Loader2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { deleteConnection } from "@/lib/api/connections";
+import { deleteConnection, updateConnectionInfo } from "@/lib/api/connections";
 import { createChat } from "@/lib/api/chat";
-import { useChatStore } from "@/store/chatStore"; // ✅ 引入 Zustand store
+import { useChatStore } from "@/store/chatStore";
+import { useAuthStore } from "@/store/authStore";
 import type { DataSource } from "./types";
 import { SiMysql, SiPostgresql, SiSqlite } from "react-icons/si";
 import "@ant-design/v5-patch-for-react-19";
 import { message } from "antd";
 import { DataSourceDetailDialog } from './DataSourceDetailDialog';
-import { updateConnectionInfo } from "@/lib/api/connections";
-import { getOrCreateUUID } from "@/lib/utils";
+
 export function DataSourceCard({ dataSource, isExample }: { dataSource: DataSource, isExample:boolean }) {
   const router = useRouter();
+  const {} = useAuthStore();
   const [showDelete, setShowDelete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -42,7 +43,7 @@ export function DataSourceCard({ dataSource, isExample }: { dataSource: DataSour
     }
     try {
       setLoading(true);
-      await deleteConnection(Number(dataSource.id),getOrCreateUUID());
+      await deleteConnection(Number(dataSource.id));
       setShowDelete(false);
       window.dispatchEvent(new CustomEvent("datasource:refresh"));
     } catch (err) {
@@ -61,7 +62,6 @@ export function DataSourceCard({ dataSource, isExample }: { dataSource: DataSour
 
       const res = await createChat({
         name: `未命名聊天`,
-        user_id: getOrCreateUUID(), // ⚠️ 这里可替换为当前登录用户 ID
         connection_id: Number(dataSource.id),
       });
 
@@ -166,7 +166,6 @@ export function DataSourceCard({ dataSource, isExample }: { dataSource: DataSour
           await updateConnectionInfo(
             dataSource.id,
             {
-              user_id: getOrCreateUUID(), // ⚠️ 根据实际情况替换
               new_name: updated.name,
               new_description: updated.db_description,
             }

@@ -1,7 +1,6 @@
 // src/store/chatStore.ts
 import { create } from "zustand";
 import { listChat } from "@/lib/api/chat";
-import { getOrCreateUUID } from "@/lib/utils";
 
 interface Chat {
   id: number;
@@ -25,7 +24,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((state) => ({ chats: state.chats.filter((c) => c.id !== chatId) })),
   refreshChats: async () => {
     try {
-      const res = await listChat(getOrCreateUUID());
+      const res = await listChat();
       set({ chats: res || [] });
     } catch (err) {
       console.error("加载聊天列表失败:", err);

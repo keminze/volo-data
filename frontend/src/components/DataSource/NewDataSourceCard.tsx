@@ -4,9 +4,11 @@ import { useState } from "react"
 import { Plus } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { NewDataSourceDialog } from "./CreateDataSource"
+import { useTranslation } from "react-i18next"
 
 export function NewDataSourceCard() {
   const [open, setOpen] = useState(false)
+  const { t } = useTranslation()
 
   return (
     <>
@@ -18,7 +20,7 @@ export function NewDataSourceCard() {
           <div className="bg-primary/10 p-3 rounded-full">
             <Plus className="w-4 h-4 text-primary" />
           </div>
-          <p className="text-sm text-gray-600 font-medium">新建数据源</p>
+          <p className="text-sm text-gray-600 font-medium">{t("dataSources.create")}</p>
         </CardContent>
       </Card>
 

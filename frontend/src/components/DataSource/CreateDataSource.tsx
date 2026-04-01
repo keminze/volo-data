@@ -24,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { createConnection, getTables } from "@/lib/api/connections"
 import { useDataSourceStore } from "@/store/dataSourceStore"
 import { message } from "antd"
-import { getOrCreateUUID } from "@/lib/utils"
+import { useTranslation } from "react-i18next"
 
 export function NewDataSourceDialog({
   open,
@@ -33,6 +33,7 @@ export function NewDataSourceDialog({
   open: boolean
   onOpenChange: (v: boolean) => void
 }) {
+  const { t } = useTranslation()
   const { fetchDataSources } = useDataSourceStore()
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<1 | 2>(1)
@@ -50,8 +51,7 @@ export function NewDataSourceDialog({
   );
 
   const [form, setForm] = useState<any>({
-    user_id: getOrCreateUUID(),
-    name: "未命名数据源",
+    name: t("dataSources.defaultName") || "未命名数据源",
     db_description: "",
     db_type: "",
     db_url: "",
@@ -103,10 +103,10 @@ export function NewDataSourceDialog({
 
       setTables(formatted);
       setStep(2)
-      message.success("成功获取数据表")
+      message.success(t("dataSources.getTablesSuccess") || "成功获取数据表")
     } catch (err) {
-      console.error("❌ 获取表失败:", err)
-      message.error("获取数据表失败，请检查连接信息")
+      console.error("获取表失败:", err)
+      message.error(t("dataSources.getTablesError") || "获取数据表失败，请检查连接信息")
     } finally {
       setLoading(false)
     }
@@ -133,13 +133,13 @@ export function NewDataSourceDialog({
       // formData.append("train_tables", JSON.stringify(form.train_tables))
 
       const res = await createConnection(formData)
-      message.success("数据源创建成功")
+      message.success(t("dataSources.createSuccess") || "数据源创建成功")
       fetchDataSources()
       resetForm()
       onOpenChange(false)
     } catch (err) {
-      console.error("❌ 创建数据源失败:", err)
-      message.error("创建失败，请稍后重试")
+      console.error("创建数据源失败:", err)
+      message.error(t("common.error") || "创建失败，请稍后重试")
     } finally {
       setLoading(false)
     }
@@ -149,8 +149,7 @@ export function NewDataSourceDialog({
   const resetForm = () => {
     setDbType("")
     setForm({
-      user_id: getOrCreateUUID(),
-      name: "未命名数据源",
+      name: t("dataSources.defaultName") || "未命名数据源",
       db_description: "",
       db_type: "",
       db_url: "",
@@ -195,14 +194,14 @@ export function NewDataSourceDialog({
       case "sqlite":
         return (
           <>
-            <Label>数据库 URL（或选择文件）</Label>
+            <Label>{t("dataSources.dbUrl") || "数据库 URL（或选择文件）"}</Label>
             <Input
               placeholder="https://example.com/db.sqlite"
               value={form.db_url}
               onChange={(e) => handleChange("db_url", e.target.value)}
               disabled={!!form.db_file}
             />
-            <Label>或上传 SQLite 文件</Label>
+            <Label>{t("dataSources.orUploadFile") || "或上传 SQLite 文件"}</Label>
             <div className="flex items-center gap-2">
               <input
                 ref={fileRef}
@@ -214,7 +213,7 @@ export function NewDataSourceDialog({
               {!form.db_file ? (
                 <Button variant="outline" onClick={() => fileRef.current?.click()}>
                   <Upload className="w-4 h-4 mr-2" />
-                  选择文件
+                  {t("dataSources.selectFile") || "选择文件"}
                 </Button>
               ) : (
                 <div className="flex items-center justify-between w-full border rounded-lg px-3 py-2 bg-gray-50">
@@ -240,33 +239,33 @@ export function NewDataSourceDialog({
       case "postgres":
         return (
           <>
-            <Label>主机地址</Label>
+            <Label>{t("dataSources.host") || "主机地址"}</Label>
             <Input
               placeholder="localhost"
               value={form.host}
               onChange={(e) => handleChange("host", e.target.value)}
             />
-            <Label>端口</Label>
+            <Label>{t("dataSources.port") || "端口"}</Label>
             <Input
               type="number"
               placeholder={dbType === "mysql" ? "3306" : "5432"}
               value={form.port}
               onChange={(e) => handleChange("port", e.target.value)}
             />
-            <Label>用户名</Label>
+            <Label>{t("dataSources.username") || "用户名"}</Label>
             <Input
               placeholder="username"
               value={form.user}
               onChange={(e) => handleChange("user", e.target.value)}
             />
-            <Label>密码</Label>
+            <Label>{t("dataSources.password") || "密码"}</Label>
             <Input
               type="password"
               placeholder="password"
               value={form.password}
               onChange={(e) => handleChange("password", e.target.value)}
             />
-            <Label>数据库名称</Label>
+            <Label>{t("dataSources.databaseName") || "数据库名称"}</Label>
             <Input
               placeholder="database"
               value={form.dbname}
@@ -278,7 +277,7 @@ export function NewDataSourceDialog({
       case "excel":
         return (
           <>
-            <Label>上传 Excel 文件</Label>
+            <Label>{t("dataSources.uploadExcel") || "上传 Excel 文件"}</Label>
             <input
               ref={fileRef}
               type="file"
@@ -289,7 +288,7 @@ export function NewDataSourceDialog({
             {!form.db_file ? (
               <Button variant="outline" onClick={() => fileRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" />
-                选择文件
+                {t("dataSources.selectFile") || "选择文件"}
               </Button>
             ) : (
               <div className="flex items-center justify-between w-full border rounded-lg px-3 py-2 bg-gray-50">
@@ -313,7 +312,7 @@ export function NewDataSourceDialog({
       case "csv":
         return (
           <>
-            <Label>上传 CSV 文件</Label>
+            <Label>{t("dataSources.uploadCSV") || "上传 CSV 文件"}</Label>
             <input
               ref={fileRef}
               type="file"
@@ -324,7 +323,7 @@ export function NewDataSourceDialog({
             {!form.db_file ? (
               <Button variant="outline" onClick={() => fileRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" />
-                选择文件
+                {t("dataSources.selectFile") || "选择文件"}
               </Button>
             ) : (
               <div className="flex items-center justify-between w-full border rounded-lg px-3 py-2 bg-gray-50">
@@ -346,7 +345,7 @@ export function NewDataSourceDialog({
         )
 
       default:
-        return <p className="text-gray-500 text-sm">请选择数据源类型以继续</p>
+        return <p className="text-gray-500 text-sm">{t("dataSources.selectType") || "请选择数据源类型以继续"}</p>
     }
   }
 
@@ -354,33 +353,33 @@ export function NewDataSourceDialog({
     <Dialog open={open} onOpenChange={handleDialogChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>新建数据源</DialogTitle>
+          <DialogTitle>{t("dataSources.createDataSource") || "新建数据源"}</DialogTitle>
           <DialogDescription>
             {step === 1
-              ? "填写数据源基础信息并选择类型。"
-              : "请选择要用于训练的数据表（可多选）。"}
+              ? (t("dataSources.step1Desc") || "填写数据源基础信息并选择类型。")
+              : (t("dataSources.step2Desc") || "请选择要用于训练的数据表（可多选）。")}
           </DialogDescription>
         </DialogHeader>
 
         {/* 第一步 */}
         {step === 1 && (
           <div className="space-y-4 py-2">
-            <Label>数据源名称</Label>
+            <Label>{t("dataSources.dataSourceName") || "数据源名称"}</Label>
             <Input
-              placeholder="如：公司销售数据库"
+              placeholder={t("dataSources.namePlaceholder") || "如：公司销售数据库"}
               value={form.name}
               onChange={(e) => handleChange("name", e.target.value)}
             />
-            <Label>附加说明</Label>
+            <Label>{t("dataSources.description") || "附加说明"}</Label>
             <Textarea
-              placeholder="可填写该数据源的用途或简介"
+              placeholder={t("dataSources.descriptionPlaceholder") || "可填写该数据源的用途或简介"}
               value={form.db_description}
               onChange={(e) => handleChange("db_description", e.target.value)}
             />
-            <Label>数据源类型</Label>
+            <Label>{t("dataSources.dataSourceType") || "数据源类型"}</Label>
             <Select value={dbType} onValueChange={handleTypeChange}>
               <SelectTrigger>
-                <SelectValue placeholder="请选择数据源类型" />
+                <SelectValue placeholder={t("dataSources.selectTypePlaceholder") || "请选择数据源类型"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="sqlite">SQLite</SelectItem>
@@ -397,18 +396,18 @@ export function NewDataSourceDialog({
         {/* 第二步 */}
         {step === 2 && (
           <div className="space-y-4 py-2">
-            <Label>选择要用于训练的数据表（最多可选 20 个）</Label>
+            <Label>{t("dataSources.selectTables") || "选择要用于训练的数据表（最多可选 20 个）"}</Label>
 
-            {/* ✅ 操作栏：关键词搜索 + 一键选择按钮 */}
+            {/* 操作栏：关键词搜索 + 一键选择按钮 */}
             <div className="flex items-center justify-between mb-2 space-x-2">
               <input
                 type="text"
-                placeholder="输入关键词筛选表名或注释..."
+                placeholder={t("dataSources.searchPlaceholder") || "输入关键词筛选表名或注释..."}
                 className="flex-1 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={searchKeyword}
                 onChange={(e) => {
                   setSearchKeyword(e.target.value);
-                  setPage(1); // 输入新关键词后重置页码
+                  setPage(1);
                 }}
               />
 
@@ -418,21 +417,21 @@ export function NewDataSourceDialog({
                 onClick={() => {
                   setForm((prev: any) => {
                     if (prev.train_tables.length > 0) {
-                      // 如果已有选择，则清空
                       return { ...prev, train_tables: [] };
                     } else {
-                      // 一键选中前20个（筛选后）
                       const selected = filteredTables.slice(0, 20);
                       return { ...prev, train_tables: selected };
                     }
                   });
                 }}
               >
-                {form.train_tables.length > 0 ? "清空选择" : "一键选择前 20 个"}
+                {form.train_tables.length > 0
+                  ? (t("dataSources.clearSelection") || "清空选择")
+                  : (t("dataSources.selectFirst20") || "一键选择前 20 个")}
               </Button>
 
               <span className="text-sm text-gray-500 whitespace-nowrap">
-                已选择 {form.train_tables.length} / 20
+                {t("dataSources.selected") || "已选择"} {form.train_tables.length} / 20
               </span>
             </div>
 
@@ -455,7 +454,7 @@ export function NewDataSourceDialog({
                               if (e.target.checked) {
                                 // 最多只能选择 20 个
                                 if (form.train_tables.length >= 20) {
-                                  message.warning("最多只能选择 20 个数据表");
+                                  message.warning(t("dataSources.maxTablesWarning") || "最多只能选择 20 个数据表");
                                   return;
                                 }
 
@@ -485,14 +484,14 @@ export function NewDataSourceDialog({
                               {table.table_name}
                             </span>
                             <span className="text-xs text-gray-500 truncate">
-                              {table.comment || "无注释"}
+                              {table.comment || (t("dataSources.noComment") || "无注释")}
                             </span>
                           </div>
                         </label>
                       </div>
                     ))}
 
-                  {/* ✅ 分页控制 */}
+                  {/* 分页控制 */}
                   <div className="flex justify-between items-center mt-3 text-sm">
                     <Button
                       variant="outline"
@@ -500,10 +499,10 @@ export function NewDataSourceDialog({
                       onClick={() => setPage((p) => Math.max(p - 1, 1))}
                       disabled={page === 1}
                     >
-                      上一页
+                      {t("dataSources.prevPage") || "上一页"}
                     </Button>
                     <span>
-                      第 {page} / {Math.ceil(filteredTables.length / 10)} 页
+                      {t("dataSources.page") || "第"} {page} / {Math.ceil(filteredTables.length / 10)} {t("dataSources.pageSuffix") || "页"}
                     </span>
                     <Button
                       variant="outline"
@@ -515,13 +514,13 @@ export function NewDataSourceDialog({
                       }
                       disabled={page === Math.ceil(filteredTables.length / 10)}
                     >
-                      下一页
+                      {t("dataSources.nextPage") || "下一页"}
                     </Button>
                   </div>
                 </>
               ) : (
                 <p className="text-sm text-gray-500">
-                  未找到符合条件的数据表，请更换关键词。
+                  {t("dataSources.noTablesFound") || "未找到符合条件的数据表，请更换关键词。"}
                 </p>
               )}
             </div>
@@ -537,25 +536,23 @@ export function NewDataSourceDialog({
                 onClick={() => handleDialogChange(false)}
                 disabled={loading}
               >
-                取消
+                {t("common.cancel") || "取消"}
               </Button>
               <Button
                 onClick={async () => {
                   if (dbType === "excel" || dbType === "csv") {
-                    // ✅ Excel/CSV 直接创建
                     await handleCreate();
                   } else {
-                    // ✅ 其他类型继续下一步（进入表选择）
                     handleNextStep();
                   }
                 }}
                 disabled={!dbType || loading}
               >
                 {loading
-                  ? "处理中..."
+                  ? (t("common.loading") || "处理中...")
                   : dbType === "excel" || dbType === "csv"
-                  ? "创建"
-                  : "下一步"}
+                  ? (t("dataSources.create") || "创建")
+                  : (t("dataSources.nextStep") || "下一步")}
               </Button>
             </>
           ) : (
@@ -565,20 +562,20 @@ export function NewDataSourceDialog({
                 onClick={() => setStep(1)}
                 disabled={loading}
               >
-                上一步
+                {t("dataSources.prevStep") || "上一步"}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleDialogChange(false)}
                 disabled={loading}
               >
-                取消
+                {t("common.cancel") || "取消"}
               </Button>
               <Button
                 onClick={handleCreate}
                 disabled={loading || form.train_tables.length === 0}
               >
-                {loading ? "创建中..." : "创建"}
+                {loading ? (t("dataSources.creating") || "创建中...") : (t("dataSources.create") || "创建")}
               </Button>
             </>
           )}

@@ -13,7 +13,6 @@ import {
 import { deleteChat, updateChatName } from "@/lib/api/chat";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useChatStore } from "@/store/chatStore";
-import { getOrCreateUUID } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 export default function SidebarGroup({
   title,
@@ -103,7 +102,7 @@ export default function SidebarGroup({
       return;
     }
     try {
-      await updateChatName(chatId, { user_id: getOrCreateUUID(), name: editValue.trim() });
+      await updateChatName(chatId, editValue.trim());
       await refreshChats();
     } catch (err) {
       console.error("重命名失败:", err);
@@ -118,7 +117,7 @@ export default function SidebarGroup({
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try {
-      await deleteChat(deleteTarget,getOrCreateUUID());
+      await deleteChat(deleteTarget);
       removeChat(deleteTarget); // ✅ 更新全局状态
       setDeleteTarget(null);
       setMenuOpenId(null);

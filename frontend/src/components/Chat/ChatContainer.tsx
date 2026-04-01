@@ -6,7 +6,6 @@ import { useState, useEffect, useRef } from "react";
 import type { Message } from "@/components/Chat/types";
 import { DataSource } from "../DataSource/types";
 import { listenStreamTask, submitStreamTask } from "@/lib/api/chat";
-import { getOrCreateUUID } from "@/lib/utils";
 import { message } from "antd"
 import { listChatMessages } from "@/lib/api/chat";
 
@@ -161,7 +160,6 @@ export default function ChatContainer({ chatId, messages, connection }: ChatCont
     try {
        const submit_res = await submitStreamTask(
         {
-          user_id: getOrCreateUUID(),
           conversation_id: chatId,
           input: text,
           allow_llm_to_see_data: true,
