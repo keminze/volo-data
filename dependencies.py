@@ -64,7 +64,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_id: str = payload.get("sub")
+    user_id: str | None = payload.get("sub")
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -101,7 +101,7 @@ async def get_current_user_optional(
     if not payload:
         return None
 
-    user_id: str = payload.get("sub")
+    user_id: str | None = payload.get("sub")
     if not user_id:
         return None
 

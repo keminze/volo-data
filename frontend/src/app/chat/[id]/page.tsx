@@ -36,7 +36,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!connectionId) return;
-    getConnectionInfo(connectionId, getOrCreateUUID())
+    getConnectionInfo(connectionId)
       .then((data: DataSource) => setConnection(data))
       .catch((err) => {
         setConnection(null);

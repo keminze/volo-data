@@ -434,7 +434,9 @@ async def get_connection_info(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    logger.info(f"Getting connection info for connection_id: {connection_id}, user_id: {current_user.id}")
+    logger.info(
+        f"Getting connection info for connection_id: {connection_id}, user_id: {current_user.id}"
+    )
     try:
         result = await db.execute(select(DBConnection).where(DBConnection.id == connection_id))
         conn = result.scalar_one_or_none()
