@@ -35,6 +35,11 @@
 * SSE real-time responses
 * Secure code sandbox
 
+## 🆕 This Update
+
+### 2026-04-13
+This update adds an experimental BI Agent service based on the DeepAgents framework, located at `/experimental_agent`. The main functions of this BI Agent are: human-computer interaction, long-term memory, skill library, and context compression. Please note that this BI Agent is an experimental feature, so it is not integrated into the main service but is a separate service with almost no connection to the main service. For details, please see the [BI Agent Service Documentation](experimental_agent\README.md).
+
 ## ✨ Key Features
 
 |                 Feature                | Description                                       |
@@ -270,15 +275,13 @@ Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for 
 
 ### Upcoming Features
 
-- Support for more data sources
-- SQL security auditing (self-healing / error correction)
-- Improved Agent memory management
+- Replace traditional workflow orchestration with superior Harness, making VoloData the true agent.
 
-### Features Under Planning
+- Add a data auditing layer for more secure and reliable database access.
 
-- Visual dashboards
-- Data permissions and row-level filtering
-- Enterprise-level document RAG to enhance data analysis accuracy
+- Add data source permission settings to support enterprise-level data source management.
+
+- Enhance human-computer interaction for transparent, visible, and self-controllable workflows.
 
 ## 📄 License
 
