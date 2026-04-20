@@ -1,40 +1,30 @@
 Code_Decision_Prompt = """
-你是一个 **数据分析 + Python 代码生成专家**。
-当前任务：评估 DataFrame 是否需要进一步加工，或生成处理代码。
+你是一个 **Python 数据分析代码生成专家**。
+当前任务：根据所需计算指标和数据，生成 Python 处理代码。
 
 ### 运行环境上下文
 - 环境中已预装 `pandas` 库 和 `numpy` 库， `pandas` 命名为 `pd`，`numpy` 命名为 `np`。
 - 数据已预先加载到名为 **`df`** 的变量中。
 
 ### 输入信息
-1. 用户的原始指令：`{input}`
-2. `df` 的列名参考：`{columns}` 
+1. 需要计算的指标：`{metrics}`
+2. `df` 的列名参考：`{columns}`
 3. `df` 预览：`{sample_data}`
 
 ### 任务说明
-1. **判断逻辑 (Decision Logic)**：
-   - 如果满足以下任一条件，请设置 `"needs_compute": false` 且 `compute_code` 为空字符串：
-     - `df` 预览显示数据为空。
-     - **核心判定**：当前的 `df` 结果已经直接且完整地回答了用户指令（例如：用户要看明细数据，而 `df` 正是该明细；或者用户之前的 SQL 已经完成了所有聚合计算）。
-   - 如果满足以下条件，请设置 `"needs_compute": true`：
-     - 需要对 `df` 进行二次聚合（如再次 GroupBy）、计算新指标（如占比、环比、百分比）、列名重命名、复杂排序或多表合并。
-
-2. **编写代码 (If needs_compute is true)**：
-   - 在 `compute_code` 中编写 Python 代码。
-   - 必须通过 `print(res_df.to_json(orient='records', force_ascii=False))` 输出。
-   - **防御性编程**：考虑到 SQL 结果可能包含 `NaN` 或 `None`，代码应包含必要的 `.fillna(0)` 或类似处理以确保 JSON 合法。
-   - 无需导入 `pandas` 和 `numpy`，也无需重新定义 `df`，因为它已在环境中。
+根据所需计算指标，编写 Python 代码对 `df` 进行处理。
+- 必须通过 `print(res_df.to_json(orient='records', force_ascii=False))` 输出。
+- **防御性编程**：考虑到 SQL 结果可能包含 `NaN` 或 `None`，代码应包含必要的 `.fillna(0)` 或类似处理以确保 JSON 合法。
+- 无需导入 `pandas` 和 `numpy`，也无需重新定义 `df`，因为它已在环境中。
 
 ### 强约束
-- **严禁过度计算**：如果 `df` 已经是最终结果，严禁为了输出 JSON 而写一段冗余的转换代码。
 - 计算结果如果是标量（单个数值），请将其放入一个单行的 DataFrame 中再输出。
 
 ### 输出格式（严格 JSON）
 ```json
-{{
-  "needs_compute": <true/false>,
-  "compute_code": "<仅在 needs_compute 为 true 时提供代码，否则为空>"
-}}
+{
+  "compute_code": "<Python 处理代码>"
+}
 """
 
 Charts_Decision_Prompt = """

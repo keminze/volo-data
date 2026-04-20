@@ -78,11 +78,12 @@ SYSTEM_PROMPT = """你是 VoloData 数据分析助手，专业且友善的商业
 - 跨会话记忆持久保存在 /memories/ 路径下
 
 ## 人机交互说明
-当系统需要执行敏感操作（如大规模数据查询或带副作用的操作）时，
-会暂停并请求你的确认。你会看到工具调用参数，请仔细审查后决定：
+部分敏感工具（如写操作、删除、批量变更）在执行前可能会暂停，请求用户确认。
+如果出现确认请求，请将工具名称和参数展示给用户，让用户决定：
 - 批准（approve）：按原参数执行
 - 编辑（edit）：修改参数后执行
 - 拒绝（reject）：取消此次操作
+注意：普通只读查询不会触发确认，只有在配置了 HITL 的工具上才会暂停。
 """
 
 # ─── 技能文件加载 ─────────────────────────────────────────────────────────────
@@ -130,7 +131,8 @@ def _seed_store_with_memories(store: InMemoryStore, namespace: tuple) -> None:
 def create_analyst_agent(
     model: str | None = None,
     system_prompt: str | None = None,
-    enable_hitl: bool = True,
+    enable_hitl: bool = False,
+    hitl_tools: list[str] | None = None,
     agent_namespace: str = "volo-analyst",
 ) -> CompiledStateGraph:
     """
@@ -139,7 +141,11 @@ def create_analyst_agent(
     Args:
         model: 模型标识，格式 'provider:model_name'，默认从环境变量读取。
         system_prompt: 额外的系统提示词，拼接在默认 prompt 前面。
-        enable_hitl: 是否启用人机交互（SQL执行前暂停确认）。
+        enable_hitl: 是否启用人机交互。默认关闭，仅在明确配置 hitl_tools 时生效。
+        hitl_tools: 需要 HITL 确认的工具名列表。默认空（不阻断任何操作）。
+            示例：["execute_sql_query"] 会在每次执行 SQL 前请求确认。
+            建议：只在涉及写操作/删除/批量操作时才启用 HITL，
+            普通只读查询不应阻断。
         agent_namespace: Store 命名空间，用于隔离不同 Agent 实例的记忆。
 
     Returns:
@@ -188,16 +194,16 @@ def create_analyst_agent(
     # ── 4. 加载技能文件（StateBackend 通过 invoke files 参数注入）
     skill_files = _load_skill_files()
 
-    # ── 5. HITL 配置（仅对 execute_sql_query 设置中断）
+    # ── 5. HITL 配置（按需对指定工具设置中断，默认不阻断任何操作）
+    # 数据分析 Agent 的核心操作是只读查询，不需要打断；
+    # 只有涉及写操作/删除/高风险批量操作时才启用 HITL 确认。
     interrupt_config = None
-    if enable_hitl:
-        interrupt_config = {
-            # SQL 执行是关键操作，默认需要用户确认
-            # allowed_decisions: approve 直接执行，edit 修改参数，reject 取消
-            "execute_sql_query": {
+    if enable_hitl and hitl_tools:
+        interrupt_config = {}
+        for tool_name in hitl_tools:
+            interrupt_config[tool_name] = {
                 "allowed_decisions": ["approve", "edit", "reject"],
-            },
-        }
+            }
 
     # ── 6. 合并 System Prompt ────────────────────────────────────────────────
     final_prompt = (system_prompt + "\n\n" if system_prompt else "") + SYSTEM_PROMPT
@@ -215,7 +221,7 @@ def create_analyst_agent(
         # 后端：/memories/ 持久化到 Store
         backend=_make_backend,
         store=agent_store,
-        # HITL：execute_sql_query 执行前暂停
+        # HITL：仅在 hitl_tools 中的工具执行前暂停确认（默认空，不阻断）
         interrupt_on=interrupt_config,
         # Checkpointer：持久化会话状态（HITL resume 必须）
         checkpointer=_checkpointer,

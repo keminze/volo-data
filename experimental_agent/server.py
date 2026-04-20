@@ -6,7 +6,8 @@ experimental_agent FastAPI 服务 (v2 — 深度优化版)
 - GET  /agent/session/{id}  — 查询会话状态（是否有待处理的 interrupt）
 
 增强：
-- ChatRequest 新增 user_id 和 datasource 字段，自动构建 AgentContext
+- ChatRequest 新增 user_id / datasource / hitl_tools 字段
+- HITL 默认关闭，通过 hitl_tools 按需启用（只在关键操作打断）
 - 所有接口通过 thread_id (session_id) 关联 checkpointer，支持多轮状态持久
 - SSE 流式接口额外推送 interrupt 事件，前端可弹出确认框
 """
@@ -20,6 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -41,8 +43,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Agent 单例（checkpointer 和 store 是共享状态，不能每次重建）
-_agent = create_analyst_agent()
+# ─── Agent 缓存 ───────────────────────────────────────────────────────────────
+# 无 HITL 的默认实例（绝大多数请求使用此实例，不会打断任何操作）
+# 有 HITL 时按 hitl_tools 组合缓存，避免重复创建
+_default_agent = create_analyst_agent()
+_agent_cache: dict[str, CompiledStateGraph] = {}
+
+
+def _get_agent(hitl_tools: list[str] | None = None) -> CompiledStateGraph:
+    """获取 Agent 实例。无 HITL 时用默认单例；有 HITL 时按工具组合缓存。"""
+    if not hitl_tools:
+        return _default_agent
+    cache_key = ",".join(sorted(hitl_tools))
+    if cache_key not in _agent_cache:
+        _agent_cache[cache_key] = create_analyst_agent(
+            enable_hitl=True,
+            hitl_tools=hitl_tools,
+        )
+    return _agent_cache[cache_key]
 
 
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
@@ -62,7 +80,11 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(..., description="对话历史，最后一条应为 user 消息")
     session_id: str | None = Field(None, description="会话 ID（thread_id），多轮对话必须保持一致")
     user_id: str = Field("anonymous", description="用户唯一标识，用于隔离记忆")
-    datasource: DatasourceRequest | None = Field(None, description="数据源配置，留空则使用环境变量默认值")
+    datasource: DatasourceRequest | None = Field(None, description="数据源配置，留空则查询用户已创建的连接")
+    hitl_tools: list[str] = Field(
+        default_factory=list,
+        description="需要 HITL 确认的工具名列表，如 ['execute_sql_query']。留空则不打断任何操作。",
+    )
     language: str = Field("zh", description="用户偏好语言：zh / en")
 
 
@@ -88,16 +110,11 @@ class ChatResponse(BaseModel):
 
 
 def _build_context(req: ChatRequest) -> AgentContext:
-    """从请求参数构建 AgentContext。"""
     ds = DatasourceConfig()
     if req.datasource:
         ds.collection_prefix = req.datasource.collection_prefix
         ds.db_params = req.datasource.db_params
-    return AgentContext(
-        user_id=req.user_id,
-        datasource=ds,
-        language=req.language,
-    )
+    return AgentContext(user_id=req.user_id, datasource=ds, language=req.language)
 
 
 def _build_lc_messages(messages: list[ChatMessage]) -> list:
@@ -110,13 +127,11 @@ def _build_lc_messages(messages: list[ChatMessage]) -> list:
     return lc_msgs
 
 
-def _get_skill_files() -> dict:
-    """获取 agent 绑定的技能文件（用于 invoke files 参数）。"""
-    return getattr(_agent, "_skill_files", {})
+def _get_skill_files(agent: CompiledStateGraph) -> dict:
+    return getattr(agent, "_skill_files", {})
 
 
 def _extract_interrupt_info(result) -> dict | None:
-    """从 agent 调用结果中提取 HITL interrupt 信息。"""
     if not hasattr(result, "interrupts") or not result.interrupts:
         return None
     interrupt_value = result.interrupts[0].value
@@ -124,6 +139,16 @@ def _extract_interrupt_info(result) -> dict | None:
         "action_requests": interrupt_value.get("action_requests", []),
         "review_configs": interrupt_value.get("review_configs", []),
     }
+
+
+def _extract_answer(result) -> str:
+    """从 agent 调用结果中提取最终 AI 回复文本。"""
+    msgs = result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    answer = ""
+    for msg in msgs:
+        if isinstance(msg, AIMessage) and msg.content:
+            answer = msg.content
+    return answer
 
 
 # ─── 接口 ──────────────────────────────────────────────────────────────────────
@@ -139,18 +164,18 @@ async def chat(req: ChatRequest):
     """
     普通对话接口（非流式）。
 
-    - 支持多轮对话（session_id 保持状态）
-    - 自动注入 AgentContext（用户身份 + 数据源配置）
-    - 技能文件通过 files 参数传入 StateBackend
+    - 默认不启用 HITL，Agent 自主完成所有操作
+    - 传入 hitl_tools 后，指定工具执行前暂停请求确认
     - 若触发 HITL 中断，返回 interrupted=true 和 interrupt_info
     """
+    agent = _get_agent(req.hitl_tools or None)
     session_id = req.session_id or str(uuid.uuid4())
     ctx = _build_context(req)
     lc_messages = _build_lc_messages(req.messages)
     config = {"configurable": {"thread_id": session_id}}
 
-    result = await _agent.ainvoke(
-        {"messages": lc_messages, "files": _get_skill_files()},
+    result = await agent.ainvoke(
+        {"messages": lc_messages, "files": _get_skill_files(agent)},
         config=config,
         context=ctx,
         version="v2",
@@ -161,21 +186,19 @@ async def chat(req: ChatRequest):
     if interrupt_info:
         return ChatResponse(
             session_id=session_id,
-            answer="⏸ 操作需要您的确认，请查看 interrupt_info 并通过 /agent/chat/resume 恢复执行。",
+            answer="操作需要您的确认，请查看 interrupt_info 并通过 /agent/chat/resume 恢复执行。",
             interrupted=True,
             interrupt_info=interrupt_info,
         )
 
-    # 提取最终回复
-    answer = ""
+    # 提取最终回复和工具调用记录
+    answer = _extract_answer(result)
     tool_calls_log = []
-    for msg in result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", []):
-        if isinstance(msg, AIMessage):
-            if msg.content:
-                answer = msg.content
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    tool_calls_log.append({"name": tc["name"], "args": tc["args"]})
+    msgs = result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    for msg in msgs:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_calls_log.append({"name": tc["name"], "args": tc["args"]})
 
     return ChatResponse(session_id=session_id, answer=answer, tool_calls=tool_calls_log)
 
@@ -185,7 +208,7 @@ async def resume_chat(req: ResumeRequest):
     """
     恢复 HITL 中断的会话。
 
-    前端在收到 interrupted=true 的响应后，展示工具调用详情给用户，
+    前端在收到 interrupted=true 后，展示工具调用详情给用户，
     获取用户决策后调用此接口恢复执行。
 
     决策示例：
@@ -193,10 +216,14 @@ async def resume_chat(req: ResumeRequest):
     - 编辑：{"type": "edit", "edited_action": {"name": "execute_sql_query", "args": {...}}}
     - 拒绝：{"type": "reject"}
     """
+    # resume 必须用同一个 agent 实例（checkpointer 绑定的），
+    # 默认用 _default_agent；如果 session 是从 HITL agent 创建的，
+    # checkpointer 是共享的，所以 default agent 也能恢复状态。
+    agent = _default_agent
     config = {"configurable": {"thread_id": req.session_id}}
     decisions = [d.model_dump(exclude_none=True) for d in req.decisions]
 
-    result = await _agent.ainvoke(
+    result = await agent.ainvoke(
         Command(resume={"decisions": decisions}),
         config=config,
         version="v2",
@@ -207,16 +234,12 @@ async def resume_chat(req: ResumeRequest):
     if interrupt_info:
         return ChatResponse(
             session_id=req.session_id,
-            answer="⏸ 还有操作需要您的确认。",
+            answer="还有操作需要您的确认。",
             interrupted=True,
             interrupt_info=interrupt_info,
         )
 
-    answer = ""
-    for msg in result.value.get("messages", []):
-        if isinstance(msg, AIMessage) and msg.content:
-            answer = msg.content
-
+    answer = _extract_answer(result)
     return ChatResponse(session_id=req.session_id, answer=answer)
 
 
@@ -233,6 +256,7 @@ async def chat_stream(req: ChatRequest):
     - done          — 流结束（含 session_id）
     - error         — 发生错误
     """
+    agent = _get_agent(req.hitl_tools or None)
     session_id = req.session_id or str(uuid.uuid4())
     ctx = _build_context(req)
     lc_messages = _build_lc_messages(req.messages)
@@ -240,8 +264,8 @@ async def chat_stream(req: ChatRequest):
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            async for event in _agent.astream_events(
-                {"messages": lc_messages, "files": _get_skill_files()},
+            async for event in agent.astream_events(
+                {"messages": lc_messages, "files": _get_skill_files(agent)},
                 config=config,
                 context=ctx,
                 version="v2",
@@ -265,7 +289,7 @@ async def chat_stream(req: ChatRequest):
                     if hasattr(output, "content"):
                         result_content = output.content
                     elif isinstance(output, str):
-                        result_content = output[:500]  # 截断避免 SSE 过大
+                        result_content = output[:500]
                     else:
                         try:
                             result_content = json.dumps(output, ensure_ascii=False, default=str)[:500]
@@ -274,7 +298,6 @@ async def chat_stream(req: ChatRequest):
                     yield _sse("tool_result", {"tool": event.get("name"), "result": result_content})
 
                 elif kind == "on_interrupt":
-                    # HITL 中断事件
                     interrupt_value = data.get("interrupt", {})
                     yield _sse("interrupt", {
                         "session_id": session_id,
@@ -297,15 +320,10 @@ async def chat_stream(req: ChatRequest):
 
 @app.get("/agent/session/{session_id}")
 async def get_session_state(session_id: str):
-    """
-    查询会话状态。
-
-    返回当前 session 是否有待处理的 HITL interrupt，
-    以及最近的消息数量（用于前端判断是否需要恢复）。
-    """
+    """查询会话状态：是否有待处理的 HITL interrupt、消息数量等。"""
     try:
         config = {"configurable": {"thread_id": session_id}}
-        state = await _agent.aget_state(config)
+        state = await _default_agent.aget_state(config)
         has_interrupt = bool(state.next) and any("interrupt" in str(n).lower() for n in state.next)
         return {
             "session_id": session_id,

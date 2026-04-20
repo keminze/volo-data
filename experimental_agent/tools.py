@@ -54,16 +54,16 @@ _sandbox = PyodideSandbox(allow_net=True, allow_read=True, allow_write=True)
 
 
 @tool(parse_docstring=True)
-async def execute_sql_query(
+async def generate_sql(
     user_question: Annotated[str, "用户的自然语言问题，原文传入不要改写"],
     runtime: ToolRuntime[AgentContext],
     collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
     db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
     allow_llm_to_see_data: Annotated[bool, "是否允许 LLM 查看数据样例以提升 SQL 质量"] = True,
 ) -> dict:
-    """将自然语言问题转为 SQL 并执行查询，返回结构化结果。
+    """根据自然语言问题生成 SQL 查询语句（不执行）。
 
-    使用场景：用户提出任何数据查询需求时调用此工具。
+    使用场景：用户提出数据查询需求时，先生成 SQL 查看是否正确。
     优先从运行时上下文读取数据源配置，无需用户每次手动传入。
 
     Args:
@@ -74,7 +74,7 @@ async def execute_sql_query(
         allow_llm_to_see_data: 是否允许 LLM 查看数据样例以提升 SQL 质量
 
     Returns:
-        包含 sql、rows、columns、data、sample_data、ddl 的字典。
+        包含 sql、ddl 的字典。
     """
     # 优先使用显式传入的参数，否则从 runtime context 读取
     ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
@@ -84,7 +84,7 @@ async def execute_sql_query(
     if not effective_prefix or not effective_db_params:
         return {
             "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
-            "sql": "", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]", "ddl": [],
+            "sql": "", "ddl": [],
         }
 
     try:
@@ -98,72 +98,141 @@ async def execute_sql_query(
         )
         connect_to_database(vn, db_params=effective_db_params)
 
-        sql, df, _ = await run_in_threadpool(
-            vn.ask, question=user_question, visualize=False, allow_llm_to_see_data=allow_llm_to_see_data
-        )
+        # 只生成 SQL，不执行
+        sql = await run_in_threadpool(vn.generate_sql, question=user_question, allow_llm_to_see_data=allow_llm_to_see_data)
         try:
             ddl = await run_in_threadpool(vn.get_related_ddl, user_question)
         except Exception:
             ddl = []
 
+        return {"sql": sql or "", "ddl": ddl}
+    except Exception as e:
+        return {"error": str(e), "sql": "", "ddl": []}
+
+
+@tool(parse_docstring=True)
+async def execute_sql(
+    sql: Annotated[str, "要执行的 SQL 语句"],
+    runtime: ToolRuntime[AgentContext],
+    collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
+    db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
+) -> dict:
+    """执行给定的 SQL 查询语句，返回结构化结果。
+
+    使用场景：generate_sql 生成 SQL 并确认无误后，调用此工具执行。
+    优先从运行时上下文读取数据源配置，无需用户每次手动传入。
+
+    Args:
+        sql: 要执行的 SQL 语句
+        runtime: 运行时上下文（自动注入，无需手动传入）
+        collection_prefix: ChromaDB 集合前缀；若留空则从运行时上下文自动读取
+        db_params: 数据库连接参数；若留空则从运行时上下文自动读取
+
+    Returns:
+        包含 rows、columns、data、sample_data 的字典。
+    """
+    # 优先使用显式传入的参数，否则从 runtime context 读取
+    ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
+    effective_prefix = collection_prefix or ctx.datasource.collection_prefix
+    effective_db_params = db_params or ctx.datasource.db_params
+
+    if not effective_prefix or not effective_db_params:
+        return {
+            "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
+            "rows": 0, "columns": [], "data": "[]", "sample_data": "[]",
+        }
+
+    if not sql or not sql.strip():
+        return {"error": "SQL 语句为空", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
+
+    try:
+        vn = Vanna(
+            {
+                "client": chromadb_client,
+                "documentation_collection_name": f"{effective_prefix}_{CollectionSuffix.DOCUMENTATION.value}",
+                "ddl_collection_name": f"{effective_prefix}_{CollectionSuffix.DDL.value}",
+                "sql_collection_name": f"{effective_prefix}_{CollectionSuffix.SQL.value}",
+            }
+        )
+        connect_to_database(vn, db_params=effective_db_params)
+
+        # 执行给定的 SQL
+        df = await run_in_threadpool(vn.run_sql, sql=sql)
+
         if df is not None and not df.empty:
             df = df.where(pd.notnull(df), None)
             return {
-                "sql": sql or "",
                 "rows": len(df),
                 "columns": list(df.columns),
                 "data": df.to_json(orient="records", force_ascii=False),
                 "sample_data": df.sample(n=min(20, len(df))).to_json(orient="records", force_ascii=False),
-                "ddl": ddl,
             }
         else:
-            return {"sql": sql or "", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]", "ddl": ddl}
+            return {"rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
     except Exception as e:
-        return {"error": str(e), "sql": "", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]", "ddl": []}
+        return {"error": str(e), "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
 
 
 @tool(parse_docstring=True)
-async def decide_and_run_compute(
-    user_question: Annotated[str, "用户的自然语言问题"],
+async def generate_compute_code(
+    metrics: Annotated[str, "描述需要计算的指标或处理需求（例如：'计算各分类的销售额占比'、'按月份聚合订单量'）"],
     columns: Annotated[list, "数据列名列表"],
     sample_data: Annotated[list, "最多20行的样例数据（list of dict）"],
-    data: Annotated[str, "完整数据的 JSON 字符串"],
 ) -> dict:
-    """判断查询结果是否需要 Python 二次计算，需要则在沙箱执行并返回结果。
+    """根据所需计算指标和数据，生成 Python 计算代码（不执行）。
 
-    使用场景：execute_sql_query 完成后，判断是否需要进一步数据处理（聚合、占比、环比等）。
+    使用场景：execute_sql 完成后，需要对数据进行进一步处理（聚合、占比、环比等）时调用。
+    Agent 自主判断是否需要调用此工具。
 
     Args:
-        user_question: 用户的自然语言问题
+        metrics: 描述需要计算的指标或处理需求（例如：'计算各分类的销售额占比'、'按月份聚合订单量'）
         columns: 数据列名列表
         sample_data: 最多20行的样例数据（list of dict）
-        data: 完整数据的 JSON 字符串
 
     Returns:
-        包含 needs_compute、compute_code、code_result 的字典。
+        包含 compute_code 的字典。
     """
     prompt = ChatPromptTemplate.from_template(Code_Decision_Prompt)
     chain = prompt | _llm
-    resp = await chain.ainvoke({"input": user_question, "sample_data": sample_data, "columns": columns})
+    resp = await chain.ainvoke({"metrics": metrics, "sample_data": sample_data, "columns": columns})
     decision = _safe_json_loads(resp.content.strip())
 
-    needs_compute = decision.get("needs_compute", False)
     compute_code = decision.get("compute_code", "")
+
+    return {"compute_code": compute_code}
+
+
+@tool(parse_docstring=True)
+async def run_compute(
+    compute_code: Annotated[str, "要执行的 Python 计算代码（仅操作 df 的部分）"],
+    data: Annotated[str, "完整数据的 JSON 字符串"],
+) -> dict:
+    """在沙箱中执行 Python 计算代码，返回结果。
+
+    使用场景：decide_compute 生成计算代码并确认无误后，调用此工具执行。
+
+    Args:
+        compute_code: 要执行的 Python 计算代码（仅操作 df 的部分）
+        data: 完整数据的 JSON 字符串
+
+    Returns:
+        包含 code_result 的字典。
+    """
     code_result = ""
 
-    if needs_compute and compute_code:
+    if compute_code:
         dict_data = json.loads(data) if isinstance(data, str) else data
         run_code = f"import numpy as np\nimport pandas as pd\ndf = pd.DataFrame({dict_data})\n{compute_code}"
         result = await _sandbox.execute(run_code)
         code_result = result.stdout if result.status == "success" else ""
 
-    return {"needs_compute": needs_compute, "compute_code": compute_code, "code_result": code_result}
+    return {"code_result": code_result}
 
 
 @tool(parse_docstring=True)
 async def generate_charts(
     user_question: Annotated[str, "用户的自然语言问题"],
-    data: Annotated[str, "数据的 JSON 字符串（优先使用 decide_and_run_compute 的 code_result）"],
+    data: Annotated[str, "数据的 JSON 字符串（优先使用 run_compute 的 code_result）"],
 ) -> dict:
     """根据数据和问题，决定是否生成图表并返回 ECharts 配置列表。
 
@@ -171,7 +240,7 @@ async def generate_charts(
 
     Args:
         user_question: 用户的自然语言问题
-        data: 数据的 JSON 字符串（优先使用 decide_and_run_compute 的 code_result）
+        data: 数据的 JSON 字符串（优先使用 run_compute 的 code_result）
 
     Returns:
         包含 need_charts（bool）和 charts（ECharts option 列表）的字典。
@@ -247,52 +316,52 @@ async def generate_analysis_report(
 
 
 @tool(parse_docstring=True)
-def list_available_datasources(runtime: ToolRuntime[AgentContext]) -> list[dict]:
-    """列出当前用户可访问的数据源。
+async def list_available_datasources(runtime: ToolRuntime[AgentContext]) -> list[dict]:
+    """列出当前用户已创建的数据源连接。
 
     使用场景：用户询问"有哪些数据库"、"能查哪些数据"，或未明确指定数据源时。
+    数据从数据库 DBConnection 表中查询（与前端 /connections/list 接口一致）。
 
     Args:
-        runtime: 运行时上下文（自动注入）
+        runtime: 运行时上下文（自动注入，用于获取 user_id）
 
     Returns:
-        数据源列表，每项含 name、db_type、collection_prefix 等字段。
+        数据源列表，每项含 id、name、db_type、db_description、collection_prefix 等字段。
     """
-    sources = []
-
-    # 1. 优先从 runtime context 读取（请求级数据源）
     ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
+    user_id = ctx.user_id
+
+    # 1. 如果 runtime context 中已携带数据源，优先返回
     if ctx.datasource.collection_prefix and ctx.datasource.db_params:
-        sources.append({
+        return [{
+            "id": -1,
             "name": "请求指定数据源",
             "collection_prefix": ctx.datasource.collection_prefix,
             "db_type": ctx.datasource.db_params.get("db_type", "unknown"),
             "host": ctx.datasource.db_params.get("host", ""),
             "database": ctx.datasource.db_params.get("database", ""),
-        })
+        }]
 
-    # 2. 环境变量默认数据源
-    default_host = os.getenv("MYSQL_HOST") or os.getenv("PG_HOST")
-    default_db = os.getenv("MYSQL_DB") or os.getenv("PG_DB")
-    default_prefix = os.getenv("DEFAULT_COLLECTION_PREFIX", "")
-    if default_host and default_db:
-        sources.append({
-            "name": "默认数据源",
-            "db_type": os.getenv("DEFAULT_DB_TYPE", "mysql"),
-            "host": default_host,
-            "database": default_db,
-            "collection_prefix": default_prefix,
-        })
+    # 2. 从 DBConnection 表查询该用户的所有数据源
+    try:
+        from sqlalchemy import select
+        from config.database import async_session
+        from config.models import DBConnection
 
-    # 3. 额外数据源（EXTRA_DATASOURCES_JSON 环境变量）
-    extra = os.getenv("EXTRA_DATASOURCES_JSON")
-    if extra:
-        try:
-            sources.extend(json.loads(extra))
-        except Exception:
-            pass
+        async with async_session() as db:
+            result = await db.execute(
+                select(DBConnection)
+                .where(DBConnection.user_id == str(user_id))
+                .order_by(DBConnection.created_at.desc())
+            )
+            rows = result.scalars().all()
+            if rows:
+                return [conn.get_safe_info() for conn in rows]
+    except Exception as e:
+        # 数据库不可用时，回退到空列表
+        pass
 
-    return sources if sources else [{"message": "未配置数据源，请在请求中传入 datasource 参数或在 .env 中设置"}]
+    return [{"message": f"用户 {user_id} 尚未创建数据源连接，请先在前端添加数据源。"}]
 
 
 # ─── 记忆辅助工具 ──────────────────────────────────────────────────────────────
@@ -378,8 +447,12 @@ def _safe_json_loads(text: str) -> dict:
 
 # 导出工具列表
 DATA_ANALYSIS_TOOLS = [
-    execute_sql_query,
-    decide_and_run_compute,
+    # 核心工具（拆分后的细粒度版本）
+    generate_sql,
+    execute_sql,
+    generate_compute_code,
+    run_compute,
+    # 其他工具
     generate_charts,
     generate_analysis_report,
     list_available_datasources,
