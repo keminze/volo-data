@@ -37,6 +37,9 @@
 
 ## 🆕 This Update
 
+### 2026-04-23
+This minor version iteration of the experimental BI Agent service primarily optimizes downstream projects, some tool architectures, and APIs. Key improvements include optimizing the BI Agent's persistent memory file, fixing the inability to perform multi-turn dialogues, resolving pronunciation and repetition issues with SKILL, and removing unused tools, functions, and code.
+
 ### 2026-04-13
 This update adds an experimental BI Agent service based on the DeepAgents framework, located at `/experimental_agent`. The main functions of this BI Agent are: human-computer interaction, long-term memory, skill library, and context compression. Please note that this BI Agent is an experimental feature, so it is not integrated into the main service but is a separate service with almost no connection to the main service. For details, please see the [BI Agent Service Documentation](experimental_agent\README.md).
 

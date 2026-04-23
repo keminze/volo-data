@@ -69,7 +69,7 @@ async def demo_hitl():
     print("示例 2：人机交互（HITL）")
     print("=" * 60)
 
-    agent = create_analyst_agent(enable_hitl=True, hitl_tools=["execute_sql_query"])
+    agent = create_analyst_agent(enable_hitl=True, hitl_tools=["execute_sql"])
     thread_id = str(uuid7())
     config = {"configurable": {"thread_id": thread_id}}
     ctx = AgentContext(

@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -77,13 +77,13 @@ class DatasourceRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(..., description="对话历史，最后一条应为 user 消息")
+    messages: list[ChatMessage] = Field(..., description="对话消息列表。首轮对话传全部消息；多轮对话（有 session_id）只需传最新一条 user 消息，历史由 checkpointer 维护")
     session_id: str | None = Field(None, description="会话 ID（thread_id），多轮对话必须保持一致")
     user_id: str = Field("anonymous", description="用户唯一标识，用于隔离记忆")
     datasource: DatasourceRequest | None = Field(None, description="数据源配置，留空则查询用户已创建的连接")
     hitl_tools: list[str] = Field(
         default_factory=list,
-        description="需要 HITL 确认的工具名列表，如 ['execute_sql_query']。留空则不打断任何操作。",
+        description="需要 HITL 确认的工具名列表，如 ['execute_sql']。留空则不打断任何操作。",
     )
     language: str = Field("zh", description="用户偏好语言：zh / en")
 
@@ -117,7 +117,34 @@ def _build_context(req: ChatRequest) -> AgentContext:
     return AgentContext(user_id=req.user_id, datasource=ds, language=req.language)
 
 
-def _build_lc_messages(messages: list[ChatMessage]) -> list:
+def _build_runtime_info(ctx: AgentContext) -> str:
+    """构建运行时上下文信息，注入到 system prompt 末尾，替代 get_current_user_info 工具。"""
+    lines = [
+        "\n## 当前请求上下文（系统自动注入，无需调用工具）",
+        f"- 用户 ID：{ctx.user_id}",
+        f"- 语言偏好：{ctx.language}",
+        f"- 数据源已配置：{'是' if ctx.datasource.collection_prefix and ctx.datasource.db_params else '否'}",
+    ]
+    if ctx.datasource.collection_prefix:
+        lines.append(f"- 数据源 collection_prefix：{ctx.datasource.collection_prefix}")
+    if ctx.datasource.db_params:
+        lines.append(f"- 数据库类型：{ctx.datasource.db_params.get('db_type', 'unknown')}")
+    return "\n".join(lines)
+
+
+def _build_lc_messages(messages: list[ChatMessage], is_multi_turn: bool = False) -> list:
+    """构建 LangChain 消息列表。
+
+    多轮对话（is_multi_turn=True）时，checkpointer 已维护历史，只需传最新一条 user 消息；
+    首轮对话时传全部 messages。
+    """
+    if is_multi_turn and messages:
+        # 多轮对话：只取最后一条 user 消息，避免与 checkpointer 历史重复
+        for m in reversed(messages):
+            if m.role == "user":
+                return [HumanMessage(content=m.content)]
+        return []
+    # 首轮对话：传入全部消息
     lc_msgs = []
     for m in messages:
         if m.role == "user":
@@ -170,8 +197,11 @@ async def chat(req: ChatRequest):
     """
     agent = _get_agent(req.hitl_tools or None)
     session_id = req.session_id or str(uuid.uuid4())
+    is_multi_turn = req.session_id is not None  # 有 session_id 说明是多轮对话
     ctx = _build_context(req)
-    lc_messages = _build_lc_messages(req.messages)
+    lc_messages = _build_lc_messages(req.messages, is_multi_turn=is_multi_turn)
+    # 将运行时上下文信息注入为 SystemMessage，避免 Agent 额外调用 get_current_user_info
+    lc_messages.insert(0, SystemMessage(content=_build_runtime_info(ctx)))
     config = {"configurable": {"thread_id": session_id}}
 
     result = await agent.ainvoke(
@@ -213,7 +243,7 @@ async def resume_chat(req: ResumeRequest):
 
     决策示例：
     - 批准：{"type": "approve"}
-    - 编辑：{"type": "edit", "edited_action": {"name": "execute_sql_query", "args": {...}}}
+    - 编辑：{"type": "edit", "edited_action": {"name": "execute_sql", "args": {...}}}
     - 拒绝：{"type": "reject"}
     """
     # resume 必须用同一个 agent 实例（checkpointer 绑定的），
@@ -258,8 +288,10 @@ async def chat_stream(req: ChatRequest):
     """
     agent = _get_agent(req.hitl_tools or None)
     session_id = req.session_id or str(uuid.uuid4())
+    is_multi_turn = req.session_id is not None
     ctx = _build_context(req)
-    lc_messages = _build_lc_messages(req.messages)
+    lc_messages = _build_lc_messages(req.messages, is_multi_turn=is_multi_turn)
+    lc_messages.insert(0, SystemMessage(content=_build_runtime_info(ctx)))
     config = {"configurable": {"thread_id": session_id}}
 
     async def event_stream() -> AsyncGenerator[str, None]:

@@ -37,7 +37,7 @@ metadata:
 
 传入参数：
 - `user_question`：用户原始问题
-- `data`：最终数据（优先用 `code_result`，否则用 `execute_sql_query` 的 `data`）
+- `data`：最终数据（优先用 `run_compute` 的 `code_result`，否则用 `execute_sql` 的 `data`）
 - `sql`：执行的 SQL 语句
 - `ddl`：相关表 DDL
 - `user_history`：近期对话历史（用于理解上下文）

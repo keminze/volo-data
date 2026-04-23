@@ -16,7 +16,7 @@ metadata:
 ## 技能范围
 
 ### 1. SQL 错误诊断
-当 `execute_sql_query` 返回 `error` 字段时：
+当 `execute_sql` 返回 `error` 字段时：
 - 解析错误类型（语法错误、表不存在、权限不足、超时等）
 - 给出具体的修复建议
 - 如果是表名/列名问题，参考 DDL 提示正确名称
@@ -33,12 +33,12 @@ metadata:
 将复杂 SQL 翻译为自然语言，解释每个子句的作用。
 
 ### 4. 查询辅助生成
-对于复杂业务需求，先理解业务逻辑，再调用 `execute_sql_query`：
+对于复杂业务需求，先理解业务逻辑，再调用 `generate_sql` + `execute_sql`：
 - 窗口函数（RANK、ROW_NUMBER、LAG/LEAD）
 - CTE（公用表表达式）
 - 条件聚合（CASE WHEN SUM）
 
 ## 重要约束
-- 不直接拼接 SQL 字符串给用户执行，始终通过 `execute_sql_query` 工具执行
+- 不直接拼接 SQL 字符串给用户执行，始终通过 `generate_sql` + `execute_sql` 工具执行
 - 不猜测表结构，使用 DDL 作为权威来源
 - 遇到权限问题，建议用户联系数据库管理员

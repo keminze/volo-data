@@ -1,56 +1,49 @@
 ---
 name: data-analysis
-description: 当用户提出数据查询、数据分析、查看报表、统计、趋势分析等需求时使用本技能。执行完整的数据分析流程：确定数据源 → 生成并执行SQL → 判断是否需要二次计算 → 生成图表 → 输出洞察报告。
+description: 当用户提出数据查询、数据分析、查看报表、统计、趋势分析等需求时使用本技能。核心原则：一次查够，工具最少化。
 license: MIT
 metadata:
   author: volo-data
-  version: "1.0"
+  version: "2.0"
 ---
 
-# data-analysis：完整数据分析流程
+# data-analysis：高效数据分析流程
 
-## 概述
+## ⚠️ 最高优先级：工具最少化原则
 
-本技能指导 Agent 完成端到端的数据分析任务，从自然语言问题到最终的可视化报告。
+**严禁：**
+- 先查一点看看，再查另一点
+- 把一个问题拆成多次 SQL 查询
+- 简单单位转换（分↔元）也用 Python 工具
+- SQL 工具调用超过 2 次
 
-## 分析流程（严格按顺序执行）
+**必须：**
+- 一次 SQL 查询所有需要的指标
+- 简单计算直接在回复里做
+- 调用工具前先规划完整路径
 
-### 第一步：确认数据源
-- 如果用户消息中未包含 `collection_prefix` 或 `db_params`，调用 `list_available_datasources` 列出可用数据源
-- 如果只有一个数据源，直接使用；如果多个，询问用户选择哪个
-- 从 runtime context 的 `datasource` 字段读取已传入的数据源配置
+## 分析流程
 
-### 第二步：执行 SQL 查询
-调用 `execute_sql_query`，传入：
-- `collection_prefix`：数据源标识
-- `user_question`：用户的原始问题（不要改写）
-- `db_params`：数据库连接参数
-- `allow_llm_to_see_data`：默认 `true`
+### 1. 确认数据源
+- 未指定数据源时，调用 `list_available_datasources`
+- 从 runtime context 读取配置
 
-**处理空结果**：若 `rows == 0`，直接告知用户无数据，无需后续步骤。
+### 2. 一次性 SQL 查询（关键步骤）
+调用 `generate_sql`，明确告诉它：**一次性查询所有需要的指标**
+- 例如："查询最近30天销售额、9月整月销售额、历史总额"
+- 不要分开查！
 
-### 第三步：判断是否需要二次计算
-调用 `decide_and_run_compute`，传入第二步返回的 `columns`、`sample_data`、`data`。
-- 如果 `needs_compute == false`，跳过本步，使用原始 `data`
-- 如果 `needs_compute == true`，使用 `code_result` 作为后续步骤的数据
+然后调用 `execute_sql` 执行。
 
-### 第四步：生成图表（按需）
-调用 `generate_charts`，传入用户问题和最终数据（`code_result` 或原始 `data`）。
-- 将返回的 `charts` 数组作为 JSON 代码块输出给用户（前端直接渲染）
+### 3. 二次计算（仅在必要时）
+- 只有复杂计算才用 `generate_compute_code` + `run_compute`
+- 简单计算直接在回复里算
 
-### 第五步：生成分析报告
-调用 `generate_analysis_report`，传入：
-- `user_question`、`data`（最终数据）、`sql`、`ddl`
-- `user_history`：从对话历史中提取之前的问答
+### 4. 生成图表和报告
+- `generate_charts` + `generate_analysis_report`
 
-## 输出格式规范
-
-1. 先展示 SQL（折叠代码块）
-2. 如有图表，输出 `charts` JSON
-3. 输出分析报告（Markdown）
-4. 末尾附加一句"如需进一步分析，请继续提问"
-
-## 注意事项
-- 数值精度：保留 3 位小数
-- 严禁自行换算单位（如分↔元）
-- 如果查询报错，解释错误并建议修正方向
+## 输出规范
+1. 展示 SQL（折叠）
+2. 图表（如有）
+3. 分析报告
+4. "如需进一步分析，请继续提问"

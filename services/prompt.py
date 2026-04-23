@@ -22,9 +22,9 @@ Code_Decision_Prompt = """
 
 ### 输出格式（严格 JSON）
 ```json
-{
+{{
   "compute_code": "<Python 处理代码>"
-}
+}}
 """
 
 Charts_Decision_Prompt = """

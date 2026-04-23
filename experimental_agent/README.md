@@ -8,38 +8,39 @@
 experimental_agent/
 ├── __init__.py       # 包入口，导出 create_analyst_agent
 ├── agent.py          # Agent 构建（deepagents create_deep_agent）
-├── tools.py          # 数据分析工具集（5 个 @tool 函数）
-├── server.py         # FastAPI 服务（普通 + SSE 流式接口）
+├── context.py        # 运行时上下文定义（AgentContext, DatasourceConfig）
+├── tools.py          # 数据分析工具集（8 个 @tool 函数）
+├── server.py         # FastAPI 服务（普通 + SSE 流式 + HITL 恢复接口）
 ├── example.py        # 直接调用示例
-└── README.md
+├── memories/         # 长期记忆文件
+│   └── AGENTS.md
+└── skills/           # 技能库（progressive disclosure）
+    ├── data-analysis/
+    ├── chart-expert/
+    ├── report-writer/
+    └── sql-optimizer/
 ```
-
-## 与原有工作流的关系
-
-| 对比项 | 原有工作流（LangGraph） | deepagents Agent |
-|--------|------------------------|-----------------|
-| 驱动方式 | 固定节点 DAG，按序执行 | ReAct 循环，LLM 自主决策调用工具 |
-| 灵活性 | 低（节点顺序固定） | 高（LLM 按需选择工具） |
-| 可扩展性 | 需修改图结构 | 直接添加 `@tool` 函数 |
-| 复用代码 | — | 复用 `services/tools.py` 中的核心逻辑 |
 
 ## 工具列表
 
 | 工具 | 功能 |
 |------|------|
-| `list_available_datasources` | 列出可用数据源 |
-| `execute_sql_query` | 自然语言 → SQL → 执行查询 |
-| `decide_and_run_compute` | 判断并执行 Python 二次计算 |
+| `generate_sql` | 自然语言 → SQL（不执行） |
+| `execute_sql` | 执行 SQL 查询 |
+| `generate_compute_code` | 生成 Python 计算代码 |
+| `run_compute` | 在沙箱中执行计算代码 |
 | `generate_charts` | 生成 ECharts 图表配置 |
 | `generate_analysis_report` | 生成商业洞察报告 |
+| `list_available_datasources` | 列出可用数据源 |
+| `save_user_preference` | 保存用户偏好到记忆 |
 
 ## 快速开始
 
 ### 1. 环境配置
 
-在安装好主项目依赖的同时，你还需安装 deepagents：
+安装依赖：
 ```bash
-pip intsall deepagents
+pip install deepagents
 ```
 
 在项目根目录 `.env` 中确保配置了以下变量（与主项目共用）：
@@ -68,13 +69,12 @@ DEFAULT_DB_TYPE=mysql
 ### 2. 启动 API 服务
 
 ```bash
-cd e:/github-project/volo-data
 uvicorn experimental_agent.server:app --reload --port 8001
 ```
 
 ### 3. 调用接口
 
-**普通对话：**
+**首轮对话：**
 ```bash
 curl -X POST http://localhost:8001/agent/chat \
   -H "Content-Type: application/json" \
@@ -94,6 +94,16 @@ curl -X POST http://localhost:8001/agent/chat \
   }'
 ```
 
+**多轮对话（传入 session_id，只需传最新消息）：**
+```bash
+curl -X POST http://localhost:8001/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "上一次返回的session_id",
+    "messages": [{"role": "user", "content": "帮我画个折线图"}]
+  }'
+```
+
 **SSE 流式对话：**
 ```bash
 curl -N -X POST http://localhost:8001/agent/chat/stream \
@@ -107,10 +117,10 @@ event: token
 data: {"text": "根据"}
 
 event: tool_start
-data: {"tool": "execute_sql_query", "args": {...}}
+data: {"tool": "generate_sql", "args": {...}}
 
 event: tool_result
-data: {"tool": "execute_sql_query", "result": "..."}
+data: {"tool": "execute_sql", "result": "..."}
 
 event: done
 data: {"session_id": "xxx"}

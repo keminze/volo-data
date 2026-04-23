@@ -1,12 +1,8 @@
 """
-数据分析 Agent 工具集 (v2 — 上下文工程增强版)
+数据分析 Agent 工具集
 
-改进点：
-1. 所有工具通过 ToolRuntime[AgentContext] 读取用户身份和数据源配置，
-   无需在消息体中传递敏感参数
-2. 新增 save_user_preference 工具，支持 Agent 主动记忆用户偏好
-3. 新增 recall_analysis_context 工具，帮助 Agent 从历史对话提取关键上下文
-4. execute_sql_query / generate_charts 等核心工具优先使用 runtime context 中的数据源
+工具通过 ToolRuntime[AgentContext] 读取用户身份和数据源配置，无需在消息体中传递敏感参数。
+核心工具：generate_sql / execute_sql / generate_compute_code / run_compute / generate_charts / generate_analysis_report
 """
 
 import datetime
@@ -38,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from fastapi.concurrency import run_in_threadpool
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_sandbox import PyodideSandbox
+from langchain_sandbox import SyncPyodideSandbox
 
 from services.db import CollectionSuffix, chromadb_client, connect_to_database
 from services.prompt import Charts_Decision_Prompt, Code_Decision_Prompt, Generate_Report_Prompt
@@ -47,7 +43,27 @@ from services.vanna_service import Vanna
 
 from experimental_agent.context import AgentContext
 
-_sandbox = PyodideSandbox(allow_net=True, allow_read=True, allow_write=True)
+_sync_sandbox = SyncPyodideSandbox(allow_net=True, allow_read=True, allow_write=True)
+
+# ─── Vanna 实例缓存 ──────────────────────────────────────────────────────────────
+_vanna_cache: dict[str, Vanna] = {}
+
+
+def _get_vanna(collection_prefix: str, db_params: dict) -> Vanna:
+    """获取或创建 Vanna 实例（基于 prefix + db_params 组合缓存）。"""
+    cache_key = f"{collection_prefix}:{db_params.get('db_type', '')}:{db_params.get('host', '')}:{db_params.get('database', '')}"
+    if cache_key not in _vanna_cache:
+        vn = Vanna(
+            {
+                "client": chromadb_client,
+                "documentation_collection_name": f"{collection_prefix}_{CollectionSuffix.DOCUMENTATION.value}",
+                "ddl_collection_name": f"{collection_prefix}_{CollectionSuffix.DDL.value}",
+                "sql_collection_name": f"{collection_prefix}_{CollectionSuffix.SQL.value}",
+            }
+        )
+        connect_to_database(vn, db_params=db_params)
+        _vanna_cache[cache_key] = vn
+    return _vanna_cache[cache_key]
 
 
 # ─── 核心数据分析工具 ──────────────────────────────────────────────────────────
@@ -55,7 +71,7 @@ _sandbox = PyodideSandbox(allow_net=True, allow_read=True, allow_write=True)
 
 @tool(parse_docstring=True)
 async def generate_sql(
-    user_question: Annotated[str, "用户的自然语言问题，原文传入不要改写"],
+    user_question: Annotated[str, "用户的自然语言问题，务必明确说明所有需要查询的指标（例如：'查询最近30天销售额、9月整月销售额、历史总额'）"],
     runtime: ToolRuntime[AgentContext],
     collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
     db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
@@ -63,11 +79,14 @@ async def generate_sql(
 ) -> dict:
     """根据自然语言问题生成 SQL 查询语句（不执行）。
 
+    【重要】务必一次性查询所有需要的指标，不要分多次查询！
+    例如：用户问"最近30天销售额"，你应该同时查询：最近30天、9月整月、历史总额等所有可能相关的指标。
+
     使用场景：用户提出数据查询需求时，先生成 SQL 查看是否正确。
     优先从运行时上下文读取数据源配置，无需用户每次手动传入。
 
     Args:
-        user_question: 用户的自然语言问题，原文传入不要改写
+        user_question: 用户的自然语言问题，务必明确说明所有需要查询的指标（例如：'查询最近30天销售额、9月整月销售额、历史总额'）
         runtime: 运行时上下文（自动注入，无需手动传入）
         collection_prefix: ChromaDB 集合前缀；若留空则从运行时上下文自动读取
         db_params: 数据库连接参数；若留空则从运行时上下文自动读取
@@ -88,15 +107,7 @@ async def generate_sql(
         }
 
     try:
-        vn = Vanna(
-            {
-                "client": chromadb_client,
-                "documentation_collection_name": f"{effective_prefix}_{CollectionSuffix.DOCUMENTATION.value}",
-                "ddl_collection_name": f"{effective_prefix}_{CollectionSuffix.DDL.value}",
-                "sql_collection_name": f"{effective_prefix}_{CollectionSuffix.SQL.value}",
-            }
-        )
-        connect_to_database(vn, db_params=effective_db_params)
+        vn = _get_vanna(effective_prefix, effective_db_params)
 
         # 只生成 SQL，不执行
         sql = await run_in_threadpool(vn.generate_sql, question=user_question, allow_llm_to_see_data=allow_llm_to_see_data)
@@ -146,15 +157,7 @@ async def execute_sql(
         return {"error": "SQL 语句为空", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
 
     try:
-        vn = Vanna(
-            {
-                "client": chromadb_client,
-                "documentation_collection_name": f"{effective_prefix}_{CollectionSuffix.DOCUMENTATION.value}",
-                "ddl_collection_name": f"{effective_prefix}_{CollectionSuffix.DDL.value}",
-                "sql_collection_name": f"{effective_prefix}_{CollectionSuffix.SQL.value}",
-            }
-        )
-        connect_to_database(vn, db_params=effective_db_params)
+        vn = _get_vanna(effective_prefix, effective_db_params)
 
         # 执行给定的 SQL
         df = await run_in_threadpool(vn.run_sql, sql=sql)
@@ -223,7 +226,8 @@ async def run_compute(
     if compute_code:
         dict_data = json.loads(data) if isinstance(data, str) else data
         run_code = f"import numpy as np\nimport pandas as pd\ndf = pd.DataFrame({dict_data})\n{compute_code}"
-        result = await _sandbox.execute(run_code)
+        # 使用同步版本 + run_in_threadpool 避免 Windows asyncio subprocess 问题
+        result = await run_in_threadpool(_sync_sandbox.execute, run_code)
         code_result = result.stdout if result.status == "success" else ""
 
     return {"code_result": code_result}
@@ -398,27 +402,6 @@ async def save_user_preference(
     return instruction
 
 
-@tool(parse_docstring=True)
-def get_current_user_info(runtime: ToolRuntime[AgentContext]) -> dict:
-    """获取当前请求的用户身份和数据源配置信息。
-
-    使用场景：Agent 需要了解当前是哪个用户在请求，或需要确认数据源配置时。
-
-    Args:
-        runtime: 运行时上下文（自动注入）
-
-    Returns:
-        包含 user_id、datasource 配置、language 等信息的字典。
-    """
-    ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
-    return {
-        "user_id": ctx.user_id,
-        "language": ctx.language,
-        "datasource_configured": bool(ctx.datasource.collection_prefix and ctx.datasource.db_params),
-        "collection_prefix": ctx.datasource.collection_prefix,
-        "db_type": ctx.datasource.db_params.get("db_type", "") if ctx.datasource.db_params else "",
-    }
-
 
 # ─── 内部工具函数 ──────────────────────────────────────────────────────────────
 
@@ -447,7 +430,7 @@ def _safe_json_loads(text: str) -> dict:
 
 # 导出工具列表
 DATA_ANALYSIS_TOOLS = [
-    # 核心工具（拆分后的细粒度版本）
+    # 核心工具
     generate_sql,
     execute_sql,
     generate_compute_code,
@@ -457,5 +440,4 @@ DATA_ANALYSIS_TOOLS = [
     generate_analysis_report,
     list_available_datasources,
     save_user_preference,
-    get_current_user_info,
 ]
