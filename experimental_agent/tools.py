@@ -15,6 +15,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
+from pydantic import Field
 
 load_dotenv()
 
@@ -76,6 +77,8 @@ async def generate_sql(
     collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
     db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
     allow_llm_to_see_data: Annotated[bool, "是否允许 LLM 查看数据样例以提升 SQL 质量"] = True,
+    ddl_list: Annotated[list[str] | None, "预查询的 DDL 列表；若传入则跳过内部 DDL 查询"] = None,
+    question_sql_list: Annotated[list | None, "预查询的相似问题-SQL列表；若传入则跳过内部相似问题查询"] = None,
 ) -> dict:
     """根据自然语言问题生成 SQL 查询语句（不执行）。
 
@@ -84,6 +87,7 @@ async def generate_sql(
 
     使用场景：用户提出数据查询需求时，先生成 SQL 查看是否正确。
     优先从运行时上下文读取数据源配置，无需用户每次手动传入。
+    可选传入 ddl_list 和 question_sql_list 以跳过内部查询，减少重复调用。
 
     Args:
         user_question: 用户的自然语言问题，务必明确说明所有需要查询的指标（例如：'查询最近30天销售额、9月整月销售额、历史总额'）
@@ -91,9 +95,11 @@ async def generate_sql(
         collection_prefix: ChromaDB 集合前缀；若留空则从运行时上下文自动读取
         db_params: 数据库连接参数；若留空则从运行时上下文自动读取
         allow_llm_to_see_data: 是否允许 LLM 查看数据样例以提升 SQL 质量
+        ddl_list: 预查询的 DDL 列表；若传入则跳过内部 DDL 查询
+        question_sql_list: 预查询的相似问题-SQL列表；若传入则跳过内部相似问题查询
 
     Returns:
-        包含 sql、ddl 的字典。
+        包含 sql 的字典。
     """
     # 优先使用显式传入的参数，否则从 runtime context 读取
     ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
@@ -103,22 +109,117 @@ async def generate_sql(
     if not effective_prefix or not effective_db_params:
         return {
             "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
-            "sql": "", "ddl": [],
+            "sql": "",
         }
 
     try:
         vn = _get_vanna(effective_prefix, effective_db_params)
 
-        # 只生成 SQL，不执行
-        sql = await run_in_threadpool(vn.generate_sql, question=user_question, allow_llm_to_see_data=allow_llm_to_see_data)
-        try:
-            ddl = await run_in_threadpool(vn.get_related_ddl, user_question)
-        except Exception:
-            ddl = []
+        # 只生成 SQL，不执行；传入 ddl_list / question_sql_list 时跳过内部查询
+        sql = await run_in_threadpool(
+            vn.generate_sql,
+            question=user_question,
+            allow_llm_to_see_data=allow_llm_to_see_data,
+            ddl_list=ddl_list,
+            question_sql_list=question_sql_list,
+        )
 
-        return {"sql": sql or "", "ddl": ddl}
+        return {"sql": sql or ""}
     except Exception as e:
-        return {"error": str(e), "sql": "", "ddl": []}
+        return {"error": str(e), "sql": ""}
+
+
+@tool(parse_docstring=True)
+async def get_ddl(
+    user_question: Annotated[str, "用户的自然语言问题，用于检索相关表结构"],
+    runtime: ToolRuntime[AgentContext],
+    collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
+    db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
+    top_k: Annotated[int, Field(
+            default=5,
+            ge=1,
+            le=10,
+            description="返回的最大 DDL 数量，范围1~10"
+        )] = 5,
+) -> dict:
+    """获取与用户问题相关的数据库表结构（DDL）。
+
+    使用场景：在生成 SQL 之前，先了解相关表结构，辅助 SQL 生成或回答用户关于表结构的问题。
+    优先从运行时上下文读取数据源配置，无需用户每次手动传入。
+
+    Args:
+        user_question: 用户的自然语言问题，用于检索相关表结构
+        runtime: 运行时上下文（自动注入，无需手动传入）
+        collection_prefix: ChromaDB 集合前缀；若留空则从运行时上下文自动读取
+        db_params: 数据库连接参数；若留空则从运行时上下文自动读取
+        top_k: 返回的最大 DDL 数量，范围1~10
+
+    Returns:
+        包含 ddl 的字典。
+    """
+    ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
+    effective_prefix = collection_prefix or ctx.datasource.collection_prefix
+    effective_db_params = db_params or ctx.datasource.db_params
+
+    if not effective_prefix or not effective_db_params:
+        return {
+            "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
+            "ddl": [],
+        }
+
+    try:
+        vn = _get_vanna(effective_prefix, effective_db_params)
+        ddl = await run_in_threadpool(vn.get_related_ddl, user_question)
+        return {"ddl": (ddl or [])[:top_k]}
+    except Exception as e:
+        return {"error": str(e), "ddl": []}
+
+
+@tool(parse_docstring=True)
+async def get_question_sql(
+    user_question: Annotated[str, "用户的自然语言问题，用于检索相似的历史问题-SQL对"],
+    runtime: ToolRuntime[AgentContext],
+    collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
+    db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
+    top_k: Annotated[int, Field(
+            default=3,
+            ge=1,
+            le=5,
+            description="返回的最大历史问题-SQL对数量，范围 1~5"
+        )] = 3,
+) -> dict:
+    """获取与用户问题相似的历史问题及对应 SQL。
+
+    使用场景：在生成 SQL 之前，查看历史上类似的问答，辅助 SQL 生成。
+    获取的结果可作为 generate_sql 的 question_sql_list 参数传入，避免重复查询。
+    优先从运行时上下文读取数据源配置，无需用户每次手动传入。
+
+    Args:
+        user_question: 用户的自然语言问题，用于检索相似的历史问题-SQL对
+        runtime: 运行时上下文（自动注入，无需手动传入）
+        collection_prefix: ChromaDB 集合前缀；若留空则从运行时上下文自动读取
+        db_params: 数据库连接参数；若留空则从运行时上下文自动读取
+        top_k: 返回的最大历史问题-SQL对数量，范围 1~5
+
+    Returns:
+        包含 question_sql_list 的字典。
+    """
+    ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
+    effective_prefix = collection_prefix or ctx.datasource.collection_prefix
+    effective_db_params = db_params or ctx.datasource.db_params
+
+    if not effective_prefix or not effective_db_params:
+        return {
+            "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
+            "question_sql_list": [],
+        }
+
+    try:
+        vn = _get_vanna(effective_prefix, effective_db_params)
+        question_sql_list = await run_in_threadpool(vn.get_similar_question_sql, user_question)
+        return {"question_sql_list": (question_sql_list or [])[:top_k]}
+    except Exception as e:
+        return {"error": str(e), "question_sql_list": []}
 
 
 @tool(parse_docstring=True)
@@ -432,6 +533,8 @@ def _safe_json_loads(text: str) -> dict:
 DATA_ANALYSIS_TOOLS = [
     # 核心工具
     generate_sql,
+    get_ddl,
+    get_question_sql,
     execute_sql,
     generate_compute_code,
     run_compute,

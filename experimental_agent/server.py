@@ -14,6 +14,7 @@ experimental_agent FastAPI 服务 (v2 — 深度优化版)
 
 import json
 import uuid
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from dotenv import load_dotenv
@@ -27,13 +28,25 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from experimental_agent.agent import create_analyst_agent
+from experimental_agent.agent import create_analyst_agent, init_agent_store
 from experimental_agent.context import AgentContext, DatasourceConfig
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: 初始化 Redis Store 和 Checkpointer（创建索引、预置记忆文件）
+    from experimental_agent.agent import _checkpointer, agent_store
+    await _checkpointer.asetup()
+    await agent_store.setup()
+    await init_agent_store()
+    yield
+
 
 app = FastAPI(
     title="VoloData Deep Agent API v2",
     version="0.2.0",
     description="基于 deepagents 的对话式数据分析 Agent，支持 HITL、长期记忆和 Skill 库",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

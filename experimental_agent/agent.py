@@ -3,11 +3,11 @@
 
 核心能力：
 1. 人机交互 (HITL)        — 指定工具执行前可暂停请求用户确认
-2. 长期记忆               — 基于 InMemoryStore + CompositeBackend 的跨会话记忆
+2. 长期记忆               — 基于 AsyncRedisStore + CompositeBackend 的跨会话记忆
 3. Skill 库               — 4 个专业技能：data-analysis / chart-expert / report-writer / sql-optimizer
 4. 上下文压缩             — 内置 summarization middleware，自动处理长对话
 5. Runtime Context        — AgentContext 传递用户身份和数据源，工具无需明文接收敏感参数
-6. Checkpointer           — MemorySaver 持久化会话状态，支持多轮对话和 HITL resume
+6. Checkpointer           — AsyncRedisSaver 持久化会话状态，支持多轮对话和 HITL resume
 
 使用方式：
     from experimental_agent.agent import create_analyst_agent, agent_store
@@ -38,21 +38,25 @@ from deepagents.backends.utils import create_file_data
 from deepagents.middleware.summarization import create_summarization_tool_middleware
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.redis import AsyncRedisSaver
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.store.memory import InMemoryStore
+from langgraph.store.redis import AsyncRedisStore
 
 from experimental_agent.context import AgentContext
 from experimental_agent.tools import DATA_ANALYSIS_TOOLS
 
 load_dotenv()
 
-# ─── 全局共享 Store（长期记忆，跨会话持久）────────────────────────────────────
-# 生产环境替换为 PostgresStore / RedisStore 等持久化 Store
-agent_store = InMemoryStore()
+# ─── Redis 连接配置 ──────────────────────────────────────────────────────────────
+# Redis Search 索引只能在 db=0 上创建，因此 Agent 专用 db 需为 0
+_REDIS_URL = os.getenv("REDIS_AGENT_URL", f"redis://:{os.getenv('REDIS_PASSWORD', '')}@{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0")
 
-# ─── Checkpointer（会话状态持久化，HITL 必须）────────────────────────────────
-_checkpointer = MemorySaver()
+# ─── 全局共享 Store（长期记忆，跨会话持久，Redis 存储）─────────────────────────
+agent_store = AsyncRedisStore(redis_url=_REDIS_URL)
+
+
+# ─── Checkpointer（会话状态持久化，Redis 存储）─────────────────────────────────
+_checkpointer = AsyncRedisSaver(redis_url=_REDIS_URL)
 
 # ─── 技能文件路径（相对于本文件）─────────────────────────────────────────────
 _SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
@@ -82,6 +86,11 @@ SYSTEM_PROMPT = """"
 2. 一次 `generate_sql` + `execute_sql` 查出所有需要的指标，不分多次
 3. `execute_sql` 只执行 `generate_sql` 输出的 SQL，不做任何修改
 4. 如果 SQL 执行失败，重新调用 `generate_sql`（传入错误信息），最多重试 1 次
+
+### 辅助工具（按需使用）
+- `get_ddl`：获取相关表结构。如果对表结构不熟悉，先调用此工具
+- `get_question_sql`：获取相似的历史问题-SQL对。如果需要参考历史查询，调用此工具
+- 调用 `get_ddl` 或 `get_question_sql` 后，可将结果作为 `generate_sql` 的 `ddl_list` / `question_sql_list` 参数传入，避免重复查询
 
 ### 严禁
 - 手动编写、修改、微调 SQL（哪怕”看起来更合理”）
@@ -114,7 +123,13 @@ SYSTEM_PROMPT = """"
 - 未经确认，不得执行写入、删除等高风险操作
 
 ## 执行流程
-1. 理解用户问题 → 2. 生成一次完整 SQL → 3. 执行 → 4. 如需复杂计算 → 5. 如需图表/报告 → 6. 返回结果
+1. 理解用户问题
+2. 如需了解表结构，调用 `get_ddl`；如需参考历史查询，调用 `get_question_sql`
+3. 调用 `generate_sql`（可将步骤2的结果作为 ddl_list / question_sql_list 传入）
+4. 调用 `execute_sql` 执行
+5. 如需复杂计算，调用 `generate_compute_code` + `run_compute`
+6. 如需图表/报告，调用 `generate_charts` / `generate_analysis_report`
+7. 返回结果
 """
 
 # ─── 技能文件加载 ─────────────────────────────────────────────────────────────
@@ -143,13 +158,13 @@ def _load_memory_files() -> dict[str, bytes]:
     return files
 
 
-def _seed_store_with_memories(store: InMemoryStore, namespace: tuple) -> None:
+async def _seed_store_with_memories(store: AsyncRedisStore, namespace: tuple) -> None:
     """将本地记忆文件预置到 Store 中（仅在 namespace 尚无数据时）。"""
     for mem_file in _MEMORIES_DIR.glob("*.md"):
         virtual_path = f"/memories/{mem_file.name}"
-        existing = store.get(namespace, virtual_path)
+        existing = await store.aget(namespace, virtual_path)
         if existing is None:
-            store.put(
+            await store.aput(
                 namespace,
                 virtual_path,
                 create_file_data(mem_file.read_text(encoding="utf-8")),
@@ -196,8 +211,7 @@ def create_analyst_agent(
     else:
         resolved_model = model
 
-    # ── 2. 预置记忆文件到 Store ──────────────────────────────────────────────
-    _seed_store_with_memories(agent_store, (agent_namespace,))
+    # ── 2. 预置记忆文件到 Store（异步，需在 lifespan 中调用 init_agent_store）─────
 
     # ── 3. 构建 Backend（CompositeBackend：/memories/ → Store，其余 → State）
     def _make_backend(rt=None):
@@ -264,3 +278,13 @@ def create_analyst_agent(
     agent._skill_files = skill_files  # 挂载到 agent 对象，供 server.py 读取
 
     return agent
+
+
+# ─── 异步初始化（在 FastAPI lifespan 中调用）─────────────────────────────────────
+
+async def init_agent_store(namespace: str = "volo-analyst") -> None:
+    """初始化 Agent Store：预置记忆文件到 Redis。
+
+    必须在 FastAPI lifespan 的 startup 阶段调用，因为 AsyncRedisStore 要求异步操作。
+    """
+    await _seed_store_with_memories(agent_store, (namespace,))

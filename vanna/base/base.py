@@ -93,7 +93,7 @@ class VannaBase(ABC):
 
         return f"Respond in the {self.language} language."
 
-    def generate_sql(self, question: str, allow_llm_to_see_data=False, **kwargs) -> str:
+    def generate_sql(self, question: str, allow_llm_to_see_data=False, ddl_list=None, question_sql_list=None, **kwargs) -> str:
         """
         Example:
         ```python
@@ -102,9 +102,9 @@ class VannaBase(ABC):
 
         Uses the LLM to generate a SQL query that answers a question. It runs the following methods:
 
-        - [`get_similar_question_sql`][vanna.base.base.VannaBase.get_similar_question_sql]
+        - [`get_similar_question_sql`][vanna.base.base.VannaBase.get_similar_question_sql] (only if question_sql_list is not provided)
 
-        - [`get_related_ddl`][vanna.base.base.VannaBase.get_related_ddl]
+        - [`get_related_ddl`][vanna.base.base.VannaBase.get_related_ddl] (only if ddl_list is not provided)
 
         - [`get_related_documentation`][vanna.base.base.VannaBase.get_related_documentation]
 
@@ -116,6 +116,8 @@ class VannaBase(ABC):
         Args:
             question (str): The question to generate a SQL query for.
             allow_llm_to_see_data (bool): Whether to allow the LLM to see the data (for the purposes of introspecting the data to generate the final SQL).
+            ddl_list (list[str] | None): Pre-fetched DDL list. If provided, get_related_ddl will be skipped.
+            question_sql_list (list | None): Pre-fetched similar question-SQL list. If provided, get_similar_question_sql will be skipped.
 
         Returns:
             str: The SQL query that answers the question.
@@ -124,8 +126,10 @@ class VannaBase(ABC):
             initial_prompt = self.config.get("initial_prompt", None)
         else:
             initial_prompt = None
-        question_sql_list = self.get_similar_question_sql(question, **kwargs)
-        ddl_list = self.get_related_ddl(question, **kwargs)
+        if question_sql_list is None:
+            question_sql_list = self.get_similar_question_sql(question, **kwargs)
+        if ddl_list is None:
+            ddl_list = self.get_related_ddl(question, **kwargs)
         # self.log(title="Related DDL", message=f"{ddl_list}")
         doc_list = self.get_related_documentation(question, **kwargs)
         prompt = self.get_sql_prompt(
