@@ -253,3 +253,19 @@ class GenerateHistory(Base):
         "Conversation",
         back_populates="generate_history",
     )
+
+
+class SqlAuditLog(Base):
+    __tablename__ = "sql_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    question: Mapped[str | None] = mapped_column(Text, nullable=True, comment="用户的原始问题")
+    sql: Mapped[str] = mapped_column(Text, nullable=False, comment="执行的 SQL 语句")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True, comment="success / error / rejected")
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    execution_ms: Mapped[int] = mapped_column(Integer, default=0, comment="执行耗时（毫秒）")
+    datasource: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="collection_prefix")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

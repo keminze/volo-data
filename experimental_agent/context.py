@@ -33,3 +33,5 @@ class AgentContext:
     datasource: DatasourceConfig = field(default_factory=DatasourceConfig)
     allow_hitl: bool = True
     language: str = "zh"
+    session_id: str = ""
+    question: str = ""

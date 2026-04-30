@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from experimental_agent.agent import create_analyst_agent, init_agent_store
+from experimental_agent.agent import create_analyst_agent, ensure_user_memories, init_agent_store
 from experimental_agent.context import AgentContext, DatasourceConfig
 
 
@@ -61,6 +61,9 @@ app.add_middleware(
 # 有 HITL 时按 hitl_tools 组合缓存，避免重复创建
 _default_agent = create_analyst_agent()
 _agent_cache: dict[str, CompiledStateGraph] = {}
+
+# session_id → hitl_tools 映射：确保 get_session_state / resume 时使用正确的 agent 实例
+_session_hitl_map: dict[str, list[str]] = {}
 
 
 def _get_agent(hitl_tools: list[str] | None = None) -> CompiledStateGraph:
@@ -109,6 +112,13 @@ class HITLDecision(BaseModel):
 class ResumeRequest(BaseModel):
     session_id: str = Field(..., description="需要恢复的会话 ID（必须与原请求一致）")
     decisions: list[HITLDecision] = Field(..., description="针对每个待确认工具调用的决策，顺序需与 interrupt 中 action_requests 一致")
+    user_id: str = Field("anonymous", description="用户唯一标识，用于构建 context（需与原请求一致）")
+    datasource: DatasourceRequest | None = Field(None, description="数据源配置（需与原请求一致）")
+    hitl_tools: list[str] = Field(
+        default_factory=list,
+        description="与原请求一致的 HITL 工具列表，用于匹配正确的 agent 实例",
+    )
+    language: str = Field("zh", description="语言偏好")
 
 
 class ChatResponse(BaseModel):
@@ -127,7 +137,26 @@ def _build_context(req: ChatRequest) -> AgentContext:
     if req.datasource:
         ds.collection_prefix = req.datasource.collection_prefix
         ds.db_params = req.datasource.db_params
-    return AgentContext(user_id=req.user_id, datasource=ds, language=req.language)
+    question = ""
+    for m in reversed(req.messages):
+        if m.role == "user" and m.content:
+            question = m.content
+            break
+    return AgentContext(
+        user_id=req.user_id, datasource=ds, language=req.language,
+        session_id=req.session_id or "", question=question,
+    )
+
+
+def _build_context_from_resume(req: ResumeRequest) -> AgentContext:
+    ds = DatasourceConfig()
+    if req.datasource:
+        ds.collection_prefix = req.datasource.collection_prefix
+        ds.db_params = req.datasource.db_params
+    return AgentContext(
+        user_id=req.user_id, datasource=ds, language=req.language,
+        session_id=req.session_id, question="",
+    )
 
 
 def _build_runtime_info(ctx: AgentContext) -> str:
@@ -210,8 +239,13 @@ async def chat(req: ChatRequest):
     """
     agent = _get_agent(req.hitl_tools or None)
     session_id = req.session_id or str(uuid.uuid4())
+    # 记录 session 使用的 hitl_tools，供 get_session_state / resume 查找正确的 agent 实例
+    if req.hitl_tools:
+        _session_hitl_map[session_id] = req.hitl_tools
     is_multi_turn = req.session_id is not None  # 有 session_id 说明是多轮对话
     ctx = _build_context(req)
+    # 确保用户记忆已初始化（首次对话时从模板预置）
+    await ensure_user_memories(ctx.user_id)
     lc_messages = _build_lc_messages(req.messages, is_multi_turn=is_multi_turn)
     # 将运行时上下文信息注入为 SystemMessage，避免 Agent 额外调用 get_current_user_info
     lc_messages.insert(0, SystemMessage(content=_build_runtime_info(ctx)))
@@ -258,17 +292,24 @@ async def resume_chat(req: ResumeRequest):
     - 批准：{"type": "approve"}
     - 编辑：{"type": "edit", "edited_action": {"name": "execute_sql", "args": {...}}}
     - 拒绝：{"type": "reject"}
+
+    重要：必须传入与原请求一致的 hitl_tools，以匹配正确的 agent 实例。
+    同时传入 datasource 等上下文信息，确保恢复后工具能正常执行。
     """
-    # resume 必须用同一个 agent 实例（checkpointer 绑定的），
-    # 默认用 _default_agent；如果 session 是从 HITL agent 创建的，
-    # checkpointer 是共享的，所以 default agent 也能恢复状态。
-    agent = _default_agent
+    # 必须用与原请求相同的 HITL agent 实例恢复，否则图结构不匹配
+    # 优先从映射查找，回退到请求参数
+    hitl_tools = _session_hitl_map.get(req.session_id, req.hitl_tools)
+    agent = _get_agent(hitl_tools or None)
     config = {"configurable": {"thread_id": req.session_id}}
     decisions = [d.model_dump(exclude_none=True) for d in req.decisions]
+
+    # 构建 context，确保恢复后工具能读取数据源配置
+    ctx = _build_context_from_resume(req)
 
     result = await agent.ainvoke(
         Command(resume={"decisions": decisions}),
         config=config,
+        context=ctx,
         version="v2",
     )
 
@@ -301,8 +342,13 @@ async def chat_stream(req: ChatRequest):
     """
     agent = _get_agent(req.hitl_tools or None)
     session_id = req.session_id or str(uuid.uuid4())
+    # 记录 session 使用的 hitl_tools
+    if req.hitl_tools:
+        _session_hitl_map[session_id] = req.hitl_tools
     is_multi_turn = req.session_id is not None
     ctx = _build_context(req)
+    # 确保用户记忆已初始化（首次对话时从模板预置）
+    await ensure_user_memories(ctx.user_id)
     lc_messages = _build_lc_messages(req.messages, is_multi_turn=is_multi_turn)
     lc_messages.insert(0, SystemMessage(content=_build_runtime_info(ctx)))
     config = {"configurable": {"thread_id": session_id}}
@@ -368,17 +414,123 @@ async def get_session_state(session_id: str):
     """查询会话状态：是否有待处理的 HITL interrupt、消息数量等。"""
     try:
         config = {"configurable": {"thread_id": session_id}}
-        state = await _default_agent.aget_state(config)
-        has_interrupt = bool(state.next) and any("interrupt" in str(n).lower() for n in state.next)
+        # 必须使用与创建会话时相同的 agent 实例，否则图结构不同导致 interrupts 检测失败
+        hitl_tools = _session_hitl_map.get(session_id)
+        agent = _get_agent(hitl_tools)
+        state = await agent.aget_state(config)
+        has_interrupt = bool(state.interrupts)
+
+        # 兜底：映射中没有记录（如服务重启后）时，尝试所有缓存的 HITL agent 探测中断
+        if not has_interrupt and _agent_cache:
+            for cached_agent in _agent_cache.values():
+                try:
+                    alt_state = await cached_agent.aget_state(config)
+                    if bool(alt_state.interrupts):
+                        state = alt_state
+                        has_interrupt = True
+                        break
+                except Exception:
+                    continue
+
+        # 最终兜底：有 next_nodes 但未检测到 interrupt 时，尝试用常见 HITL 工具组合探测
+        if not has_interrupt and state.next:
+            for probe_tools in [["execute_sql"], ["generate_sql", "execute_sql"]]:
+                try:
+                    probe_agent = _get_agent(probe_tools)
+                    alt_state = await probe_agent.aget_state(config)
+                    if bool(alt_state.interrupts):
+                        state = alt_state
+                        has_interrupt = True
+                        break
+                except Exception:
+                    continue
+        interrupt_details = []
+        if has_interrupt:
+            for intr in state.interrupts:
+                interrupt_details.append({
+                    "value": intr.value if hasattr(intr, "value") else str(intr),
+                })
         return {
             "session_id": session_id,
             "exists": state is not None,
             "has_pending_interrupt": has_interrupt,
+            "interrupts": interrupt_details,
             "message_count": len(state.values.get("messages", [])) if state.values else 0,
             "next_nodes": list(state.next) if state.next else [],
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Session not found: {e}")
+
+
+@app.get("/agent/audit")
+async def get_audit_logs(
+    user_id: str | None = Query(None, description="按用户 ID 筛选"),
+    session_id: str | None = Query(None, description="按会话 ID 筛选"),
+    status: str | None = Query(None, description="按状态筛选：success / error / rejected"),
+    start_time: str | None = Query(None, description="起始时间 (ISO 8601)"),
+    end_time: str | None = Query(None, description="结束时间 (ISO 8601)"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """查询 SQL 审计日志，支持按用户、会话、状态、时间范围筛选和分页。"""
+    from datetime import datetime as dt
+
+    from sqlalchemy import func as sa_func, select
+
+    from config.database import async_session
+    from config.models import SqlAuditLog
+
+    try:
+        async with async_session() as db:
+            query = select(SqlAuditLog)
+            count_query = select(sa_func.count(SqlAuditLog.id))
+
+            if user_id:
+                query = query.where(SqlAuditLog.user_id == user_id)
+                count_query = count_query.where(SqlAuditLog.user_id == user_id)
+            if session_id:
+                query = query.where(SqlAuditLog.session_id == session_id)
+                count_query = count_query.where(SqlAuditLog.session_id == session_id)
+            if status:
+                query = query.where(SqlAuditLog.status == status)
+                count_query = count_query.where(SqlAuditLog.status == status)
+            if start_time:
+                query = query.where(SqlAuditLog.created_at >= dt.fromisoformat(start_time))
+                count_query = count_query.where(SqlAuditLog.created_at >= dt.fromisoformat(start_time))
+            if end_time:
+                query = query.where(SqlAuditLog.created_at <= dt.fromisoformat(end_time))
+                count_query = count_query.where(SqlAuditLog.created_at <= dt.fromisoformat(end_time))
+
+            total_result = await db.execute(count_query)
+            total = total_result.scalar() or 0
+
+            query = query.order_by(SqlAuditLog.created_at.desc()).limit(limit).offset(offset)
+            result = await db.execute(query)
+            rows = result.scalars().all()
+
+            return {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "records": [
+                    {
+                        "id": r.id,
+                        "user_id": r.user_id,
+                        "session_id": r.session_id,
+                        "question": r.question,
+                        "sql": r.sql,
+                        "status": r.status,
+                        "row_count": r.row_count,
+                        "error_message": r.error_message,
+                        "execution_ms": r.execution_ms,
+                        "datasource": r.datasource,
+                        "created_at": r.created_at.isoformat() if r.created_at else None,
+                    }
+                    for r in rows
+                ],
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"查询审计日志失败: {e}")
 
 
 def _sse(event: str, data: dict) -> str:

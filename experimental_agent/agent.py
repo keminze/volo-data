@@ -87,10 +87,11 @@ SYSTEM_PROMPT = """"
 3. `execute_sql` 只执行 `generate_sql` 输出的 SQL，不做任何修改
 4. 如果 SQL 执行失败，重新调用 `generate_sql`（传入错误信息），最多重试 1 次
 
-### 辅助工具（按需使用）
+### 辅助工具（按需使用，调用后必须继续主流程）
 - `get_ddl`：获取相关表结构。如果对表结构不熟悉，先调用此工具
 - `get_question_sql`：获取相似的历史问题-SQL对。如果需要参考历史查询，调用此工具
-- 调用 `get_ddl` 或 `get_question_sql` 后，可将结果作为 `generate_sql` 的 `ddl_list` / `question_sql_list` 参数传入，避免重复查询
+- 调用 `get_ddl` 或 `get_question_sql` 后，**必须**将结果作为 `generate_sql` 的 `ddl_list` / `question_sql_list` 参数传入，然后继续执行 SQL
+- **禁止**在调用辅助工具后直接回复用户——它们只是准备步骤，不是最终答案
 
 ### 严禁
 - 手动编写、修改、微调 SQL（哪怕”看起来更合理”）
@@ -98,6 +99,7 @@ SYSTEM_PROMPT = """"
 - 主动查询用户未要求的衍生指标
 - 连续 3 次及以上调用 SQL 工具
 - 用多次 SQL 分段凑答案
+- 调用 get_ddl / get_question_sql 后直接回复用户（必须继续调用 generate_sql）
 
 ## 计算工具规则
 - 简单计算（单位换算、百分比、加减乘除）直接在回复里做
@@ -122,14 +124,15 @@ SYSTEM_PROMPT = """"
 - 只读查询默认不触发确认
 - 未经确认，不得执行写入、删除等高风险操作
 
-## 执行流程
+## 执行流程（严格按顺序，不可跳过步骤 3~5）
 1. 理解用户问题
 2. 如需了解表结构，调用 `get_ddl`；如需参考历史查询，调用 `get_question_sql`
-3. 调用 `generate_sql`（可将步骤2的结果作为 ddl_list / question_sql_list 传入）
-4. 调用 `execute_sql` 执行
-5. 如需复杂计算，调用 `generate_compute_code` + `run_compute`
-6. 如需图表/报告，调用 `generate_charts` / `generate_analysis_report`
-7. 返回结果
+3. **必须**调用 `generate_sql`（可将步骤2的结果作为 ddl_list / question_sql_list 传入）
+4. **必须**调用 `audit_sql` 对生成的 SQL 进行审计记录
+5. **必须**调用 `execute_sql` 执行 SQL（若未审计，execute_sql 将拒绝执行）
+6. 如需复杂计算，调用 `generate_compute_code` + `run_compute`
+7. 如需图表/报告，调用 `generate_charts` / `generate_analysis_report`
+8. 返回结果
 """
 
 # ─── 技能文件加载 ─────────────────────────────────────────────────────────────
@@ -159,7 +162,7 @@ def _load_memory_files() -> dict[str, bytes]:
 
 
 async def _seed_store_with_memories(store: AsyncRedisStore, namespace: tuple) -> None:
-    """将本地记忆文件预置到 Store 中（仅在 namespace 尚无数据时）。"""
+    """将本地记忆模板文件预置到 Store 中（仅在 namespace 尚无数据时）。"""
     for mem_file in _MEMORIES_DIR.glob("*.md"):
         virtual_path = f"/memories/{mem_file.name}"
         existing = await store.aget(namespace, virtual_path)
@@ -169,6 +172,17 @@ async def _seed_store_with_memories(store: AsyncRedisStore, namespace: tuple) ->
                 virtual_path,
                 create_file_data(mem_file.read_text(encoding="utf-8")),
             )
+
+
+async def ensure_user_memories(user_id: str, agent_namespace: str = "volo-analyst") -> None:
+    """确保指定用户的记忆文件已初始化。如果用户首次使用，从模板预置一份。
+
+    在每次对话开始时调用，保证新用户也有 AGENTS.md 模板。
+    """
+    namespace = (agent_namespace, user_id)
+    existing = await agent_store.aget(namespace, "/memories/AGENTS.md")
+    if existing is None:
+        await _seed_store_with_memories(agent_store, namespace)
 
 
 # ─── Agent 工厂函数 ───────────────────────────────────────────────────────────
@@ -215,14 +229,22 @@ def create_analyst_agent(
 
     # ── 3. 构建 Backend（CompositeBackend：/memories/ → Store，其余 → State）
     def _make_backend(rt=None):
-        """工厂函数，支持带/不带 runtime 的调用。"""
+        """工厂函数，支持带/不带 runtime 的调用。
+        namespace 按 (agent_namespace, user_id) 隔离，每个用户拥有独立记忆空间。
+        """
+        def _user_namespace(rt) -> tuple:
+            user_id = "anonymous"
+            if rt is not None and hasattr(rt, "context") and rt.context is not None:
+                user_id = getattr(rt.context, "user_id", "anonymous")
+            return (agent_namespace, user_id)
+
         if rt is not None:
             return CompositeBackend(
                 default=StateBackend(rt),
                 routes={
                     "/memories/": StoreBackend(
                         rt,
-                        namespace=lambda _rt: (agent_namespace,),
+                        namespace=_user_namespace,
                     ),
                 },
             )
@@ -231,7 +253,7 @@ def create_analyst_agent(
                 default=StateBackend(),
                 routes={
                     "/memories/": StoreBackend(
-                        namespace=lambda _rt: (agent_namespace,),
+                        namespace=_user_namespace,
                     ),
                 },
             )
@@ -283,8 +305,9 @@ def create_analyst_agent(
 # ─── 异步初始化（在 FastAPI lifespan 中调用）─────────────────────────────────────
 
 async def init_agent_store(namespace: str = "volo-analyst") -> None:
-    """初始化 Agent Store：预置记忆文件到 Redis。
+    """初始化 Agent Store：为默认用户预置记忆模板到 Redis。
 
     必须在 FastAPI lifespan 的 startup 阶段调用，因为 AsyncRedisStore 要求异步操作。
+    每个真实用户首次对话时，会通过 ensure_user_memories 自动初始化。
     """
-    await _seed_store_with_memories(agent_store, (namespace,))
+    await _seed_store_with_memories(agent_store, (namespace, "anonymous"))

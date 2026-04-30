@@ -7,6 +7,7 @@
 
 import datetime
 import json
+import time
 import os
 import re
 from typing import Annotated
@@ -144,7 +145,9 @@ async def get_ddl(
 ) -> dict:
     """获取与用户问题相关的数据库表结构（DDL）。
 
-    使用场景：在生成 SQL 之前，先了解相关表结构，辅助 SQL 生成或回答用户关于表结构的问题。
+    使用场景：在调用 generate_sql 之前，先了解相关表结构，辅助 SQL 生成。
+    获取的结果必须作为 generate_sql 的 ddl_list 参数传入。
+    注意：调用此工具后，必须继续调用 generate_sql，不能直接回复用户。
     优先从运行时上下文读取数据源配置，无需用户每次手动传入。
 
     Args:
@@ -190,8 +193,9 @@ async def get_question_sql(
 ) -> dict:
     """获取与用户问题相似的历史问题及对应 SQL。
 
-    使用场景：在生成 SQL 之前，查看历史上类似的问答，辅助 SQL 生成。
-    获取的结果可作为 generate_sql 的 question_sql_list 参数传入，避免重复查询。
+    使用场景：在调用 generate_sql 之前，查看历史上类似的问答，辅助 SQL 生成。
+    获取的结果必须作为 generate_sql 的 question_sql_list 参数传入。
+    注意：调用此工具后，必须继续调用 generate_sql，不能直接回复用户。
     优先从运行时上下文读取数据源配置，无需用户每次手动传入。
 
     Args:
@@ -223,6 +227,31 @@ async def get_question_sql(
 
 
 @tool(parse_docstring=True)
+async def audit_sql(
+    sql: Annotated[str, "要审计的 SQL 语句"],
+    runtime: ToolRuntime[AgentContext],
+) -> dict:
+    """对即将执行的 SQL 进行审计记录。
+
+    【强制】在调用 execute_sql 之前，必须先调用此工具记录审计信息。
+    此工具会将 SQL 标记为 "pending" 状态，供 execute_sql 执行前验证。
+
+    使用场景：generate_sql 生成 SQL 后、execute_sql 执行前的必经步骤。
+
+    Args:
+        sql: 要审计并记录的 SQL 语句
+        runtime: 运行时上下文（自动注入，无需手动传入）
+
+    Returns:
+        {"audit_status": "pending", "message": "审计已通过，可以调用 execute_sql"}
+    """
+    ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
+
+    await _upsert_audit_log(ctx, sql, "pending", datasource=ctx.datasource.collection_prefix)
+    return {"audit_status": "pending", "message": "审计已通过，可以调用 execute_sql"}
+
+
+@tool(parse_docstring=True)
 async def execute_sql(
     sql: Annotated[str, "要执行的 SQL 语句"],
     runtime: ToolRuntime[AgentContext],
@@ -231,7 +260,10 @@ async def execute_sql(
 ) -> dict:
     """执行给定的 SQL 查询语句，返回结构化结果。
 
-    使用场景：generate_sql 生成 SQL 并确认无误后，调用此工具执行。
+    【强制】在调用此工具之前，必须先调用 `audit_sql` 完成审计记录。
+    如果该 SQL 未被审计，将拒绝执行并返回错误提示。
+
+    使用场景：generate_sql 生成 SQL 且 audit_sql 完成审计后，调用此工具执行。
     优先从运行时上下文读取数据源配置，无需用户每次手动传入。
 
     Args:
@@ -243,28 +275,40 @@ async def execute_sql(
     Returns:
         包含 rows、columns、data、sample_data 的字典。
     """
-    # 优先使用显式传入的参数，否则从 runtime context 读取
     ctx: AgentContext = runtime.context if runtime and runtime.context else AgentContext()
     effective_prefix = collection_prefix or ctx.datasource.collection_prefix
     effective_db_params = db_params or ctx.datasource.db_params
+    start_ms = int(time.monotonic() * 1000)
 
-    if not effective_prefix or not effective_db_params:
+    # ── 1. 强制审计检查 ──
+    pending_audit = await _find_pending_audit(ctx.session_id, sql)
+    if not pending_audit:
         return {
-            "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
+            "error": "此 SQL 未通过审计。请按正确顺序执行：generate_sql → audit_sql → execute_sql",
             "rows": 0, "columns": [], "data": "[]", "sample_data": "[]",
         }
 
+    if not effective_prefix or not effective_db_params:
+        result = {
+            "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
+            "rows": 0, "columns": [], "data": "[]", "sample_data": "[]",
+        }
+        await _upsert_audit_log(ctx, sql, "error", 0, result["error"], 0, effective_prefix)
+        return result
+
     if not sql or not sql.strip():
-        return {"error": "SQL 语句为空", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
+        result = {"error": "SQL 语句为空", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
+        await _upsert_audit_log(ctx, sql, "error", 0, "SQL 语句为空", 0, effective_prefix)
+        return result
 
     try:
         vn = _get_vanna(effective_prefix, effective_db_params)
-
-        # 执行给定的 SQL
         df = await run_in_threadpool(vn.run_sql, sql=sql)
+        elapsed_ms = int(time.monotonic() * 1000) - start_ms
 
         if df is not None and not df.empty:
             df = df.where(pd.notnull(df), None)
+            await _upsert_audit_log(ctx, sql, "success", len(df), None, elapsed_ms, effective_prefix)
             return {
                 "rows": len(df),
                 "columns": list(df.columns),
@@ -272,8 +316,11 @@ async def execute_sql(
                 "sample_data": df.sample(n=min(20, len(df))).to_json(orient="records", force_ascii=False),
             }
         else:
+            await _upsert_audit_log(ctx, sql, "success", 0, None, elapsed_ms, effective_prefix)
             return {"rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
     except Exception as e:
+        elapsed_ms = int(time.monotonic() * 1000) - start_ms
+        await _upsert_audit_log(ctx, sql, "error", 0, str(e), elapsed_ms, effective_prefix)
         return {"error": str(e), "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
 
 
@@ -503,6 +550,76 @@ async def save_user_preference(
     return instruction
 
 
+# ─── SQL 审计 ────────────────────────────────────────────────────────────────────
+
+
+async def _upsert_audit_log(
+    ctx: AgentContext,
+    sql: str,
+    status: str,
+    row_count: int = 0,
+    error_message: str | None = None,
+    execution_ms: int = 0,
+    datasource: str = "",
+) -> None:
+    """写入或更新 SQL 审计记录。失败时静默处理，不得中断工具主流程。"""
+    try:
+        from config.database import async_session
+        from config.models import SqlAuditLog
+        from sqlalchemy import select
+
+        async with async_session() as db:
+            # 查找该 session + sql 的 pending 记录
+            result = await db.execute(
+                select(SqlAuditLog)
+                .where(SqlAuditLog.session_id == ctx.session_id)
+                .where(SqlAuditLog.sql == sql)
+                .where(SqlAuditLog.status == "pending")
+                .order_by(SqlAuditLog.created_at.desc())
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.status = status
+                existing.row_count = row_count
+                existing.error_message = error_message
+                existing.execution_ms = execution_ms
+                existing.datasource = datasource or existing.datasource
+            else:
+                db.add(SqlAuditLog(
+                    user_id=ctx.user_id,
+                    session_id=ctx.session_id,
+                    question=ctx.question,
+                    sql=sql,
+                    status=status,
+                    row_count=row_count,
+                    error_message=error_message,
+                    execution_ms=execution_ms,
+                    datasource=datasource,
+                ))
+            await db.commit()
+    except Exception:
+        pass
+
+
+async def _find_pending_audit(session_id: str, sql: str):
+    """查找指定 session 和 SQL 的 pending 审计记录。"""
+    try:
+        from config.database import async_session
+        from config.models import SqlAuditLog
+        from sqlalchemy import select
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(SqlAuditLog)
+                .where(SqlAuditLog.session_id == session_id)
+                .where(SqlAuditLog.sql == sql)
+                .where(SqlAuditLog.status == "pending")
+                .order_by(SqlAuditLog.created_at.desc())
+            )
+            return result.scalar_one_or_none()
+    except Exception:
+        return None
+
 
 # ─── 内部工具函数 ──────────────────────────────────────────────────────────────
 
@@ -533,6 +650,7 @@ def _safe_json_loads(text: str) -> dict:
 DATA_ANALYSIS_TOOLS = [
     # 核心工具
     generate_sql,
+    audit_sql,
     get_ddl,
     get_question_sql,
     execute_sql,
