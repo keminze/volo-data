@@ -263,17 +263,11 @@ class ToolCall(Base):
         index=True,
     )
 
-    tool_name: Mapped[str] = mapped_column(
-        String(100), nullable=False, comment="工具名称"
-    )
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="工具名称")
 
-    tool_args: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="工具调用参数"
-    )
+    tool_args: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="工具调用参数")
 
-    tool_result: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="工具返回结果"
-    )
+    tool_result: Mapped[str | None] = mapped_column(Text, nullable=True, comment="工具返回结果")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

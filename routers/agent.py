@@ -9,7 +9,13 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -60,10 +66,7 @@ async def init_agent_resources():
 async def _load_session_hitl_map() -> dict[str, list[str]]:
     try:
         raw = await redis_client.hgetall(_REDIS_HITL_KEY)
-        return {
-            k.decode() if isinstance(k, bytes) else k: json.loads(v)
-            for k, v in raw.items()
-        }
+        return {k.decode() if isinstance(k, bytes) else k: json.loads(v) for k, v in raw.items()}
     except Exception:
         return {}
 
@@ -170,7 +173,9 @@ def _extract_interrupt_info(result) -> dict | None:
 
 
 def _extract_answer(result) -> str:
-    msgs = result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    msgs = (
+        result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    )
     answer = ""
     for msg in msgs:
         if isinstance(msg, AIMessage) and msg.content:
@@ -180,7 +185,15 @@ def _extract_answer(result) -> str:
 
 # ─── 工具 JSON 清理 ────────────────────────────────────────────────────────────
 
-_TOOL_JSON_KEYS = {"need_chart", "need_charts", "chart_type", "x_col", "y_col", "category_col", "stacked"}
+_TOOL_JSON_KEYS = {
+    "need_chart",
+    "need_charts",
+    "chart_type",
+    "x_col",
+    "y_col",
+    "category_col",
+    "stacked",
+}
 
 
 def _strip_tool_json(text: str) -> str:
@@ -190,20 +203,26 @@ def _strip_tool_json(text: str) -> str:
     def _should_strip(match: str) -> bool:
         return any(f'"{k}"' in match for k in _TOOL_JSON_KEYS)
 
-    result = re.sub(r'\{[^{}]*\}', lambda m: "" if _should_strip(m.group()) else m.group(), text)
-    result = re.sub(r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}', lambda m: "" if _should_strip(m.group()) else m.group(), result)
-    return re.sub(r'\n{3,}', '\n\n', result).strip()
+    result = re.sub(r"\{[^{}]*\}", lambda m: "" if _should_strip(m.group()) else m.group(), text)
+    result = re.sub(
+        r"\{(?:[^{}]|(?:\{[^{}]*\}))*\}",
+        lambda m: "" if _should_strip(m.group()) else m.group(),
+        result,
+    )
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
 def _extract_current_turn_tool_calls(result) -> list[dict]:
     """仅提取本轮对话的工具调用及结果（最后一条 HumanMessage 之后的）。"""
-    msgs = result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    msgs = (
+        result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    )
     # 找到最后一条 HumanMessage 的位置
     last_human_idx = -1
     for i, msg in enumerate(msgs):
         if isinstance(msg, HumanMessage):
             last_human_idx = i
-    turn_msgs = msgs[last_human_idx + 1:]
+    turn_msgs = msgs[last_human_idx + 1 :]
 
     # 先收集所有 ToolMessage，用 tool_call_id 建索引
     tool_results: dict[str, str] = {}
@@ -229,7 +248,9 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-async def _save_messages(conversation_id: int, user_input: str, answer: str, tool_calls: list | None = None):
+async def _save_messages(
+    conversation_id: int, user_input: str, answer: str, tool_calls: list | None = None
+):
     """保存用户消息和 AI 回复到 Message 表，工具调用记录保存到 ToolCall 表。"""
     try:
         async with async_session() as db:
@@ -383,10 +404,13 @@ async def agent_chat_stream(
                         "name": event.get("name"),
                         "args": data.get("input", {}),
                     }
-                    yield _sse("tool_start", {
-                        "tool": _pending_tool["name"],
-                        "args": _pending_tool["args"],
-                    })
+                    yield _sse(
+                        "tool_start",
+                        {
+                            "tool": _pending_tool["name"],
+                            "args": _pending_tool["args"],
+                        },
+                    )
 
                 elif kind == "on_tool_end":
                     _in_tool_call = False
@@ -397,7 +421,9 @@ async def agent_chat_stream(
                         result_content = output[:500]
                     else:
                         try:
-                            result_content = json.dumps(output, ensure_ascii=False, default=str)[:500]
+                            result_content = json.dumps(output, ensure_ascii=False, default=str)[
+                                :500
+                            ]
                         except Exception:
                             result_content = str(output)[:500]
                     if _pending_tool is not None:
@@ -407,12 +433,15 @@ async def agent_chat_stream(
 
                 elif kind == "on_interrupt":
                     interrupt_value = data.get("interrupt", {})
-                    yield _sse("interrupt", {
-                        "session_id": session_id,
-                        "action_requests": interrupt_value.get("action_requests", []),
-                        "review_configs": interrupt_value.get("review_configs", []),
-                        "message": "操作需要您的确认，请通过 POST /agent/chat/resume 恢复执行",
-                    })
+                    yield _sse(
+                        "interrupt",
+                        {
+                            "session_id": session_id,
+                            "action_requests": interrupt_value.get("action_requests", []),
+                            "review_configs": interrupt_value.get("review_configs", []),
+                            "message": "操作需要您的确认，请通过 POST /agent/chat/resume 恢复执行",
+                        },
+                    )
 
             yield _sse("done", {"session_id": session_id})
 
@@ -420,7 +449,10 @@ async def agent_chat_stream(
             full_answer = _strip_tool_json("".join(collected_answer))
             if full_answer:
                 background_tasks.add_task(
-                    _save_messages, conversation.id, req.input, full_answer,
+                    _save_messages,
+                    conversation.id,
+                    req.input,
+                    full_answer,
                     tool_calls=collected_tool_calls or None,
                 )
 
@@ -471,7 +503,9 @@ async def agent_chat_resume(
     tool_calls_log = _extract_current_turn_tool_calls(result)
     await _save_messages(conversation.id, "[HITL Resume]", answer, tool_calls=tool_calls_log)
 
-    return AgentChatResponse(conversation_id=conversation.id, answer=answer, tool_calls=tool_calls_log)
+    return AgentChatResponse(
+        conversation_id=conversation.id, answer=answer, tool_calls=tool_calls_log
+    )
 
 
 @router.get("/session/{conversation_id}")
@@ -506,9 +540,11 @@ async def get_session_state(
         interrupt_details = []
         if has_interrupt:
             for intr in state.interrupts:
-                interrupt_details.append({
-                    "value": intr.value if hasattr(intr, "value") else str(intr),
-                })
+                interrupt_details.append(
+                    {
+                        "value": intr.value if hasattr(intr, "value") else str(intr),
+                    }
+                )
 
         return {
             "session_id": session_id,
@@ -560,10 +596,14 @@ async def get_audit_logs(
                 count_query = count_query.where(SqlAuditLog.status == status)
             if start_time:
                 query = query.where(SqlAuditLog.created_at >= dt.fromisoformat(start_time))
-                count_query = count_query.where(SqlAuditLog.created_at >= dt.fromisoformat(start_time))
+                count_query = count_query.where(
+                    SqlAuditLog.created_at >= dt.fromisoformat(start_time)
+                )
             if end_time:
                 query = query.where(SqlAuditLog.created_at <= dt.fromisoformat(end_time))
-                count_query = count_query.where(SqlAuditLog.created_at <= dt.fromisoformat(end_time))
+                count_query = count_query.where(
+                    SqlAuditLog.created_at <= dt.fromisoformat(end_time)
+                )
 
             total_result = await db.execute(count_query)
             total = total_result.scalar() or 0
