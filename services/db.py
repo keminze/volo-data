@@ -376,24 +376,20 @@ def get_db_tables(db_type: str, **kwargs):
                 result = [{"table_name": t, "comment": comment_map.get(t, "")} for t in tables]
 
             elif db_type == "postgresql":
-                rows = conn.execute(
-                    text("""
+                rows = conn.execute(text("""
                         SELECT c.relname AS table_name, obj_description(c.oid) AS comment
                         FROM pg_class c
                         JOIN pg_namespace n ON n.oid = c.relnamespace
                         WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-                    """)
-                ).fetchall()
+                    """)).fetchall()
                 comment_map = {r[0]: r[1] or "" for r in rows}
                 result = [{"table_name": t, "comment": comment_map.get(t, "")} for t in tables]
 
             elif db_type == "oracle":
-                rows = conn.execute(
-                    text("""
+                rows = conn.execute(text("""
                         SELECT table_name, comments
                         FROM user_tab_comments
-                    """)
-                ).fetchall()
+                    """)).fetchall()
                 comment_map = {r[0]: r[1] or "" for r in rows}
                 result = [{"table_name": t, "comment": comment_map.get(t, "")} for t in tables]
 
