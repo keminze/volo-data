@@ -5,8 +5,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from services.auth import decode_token, get_user_by_id
 from services.auth import User as UserModel
+from services.auth import decode_token, get_user_by_id
 
 # 公开接口（不需要认证）
 PUBLIC_PATHS = {

@@ -43,24 +43,47 @@ async def demo_basic_chat():
     # 第一轮
     r1 = await agent.ainvoke(
         {"messages": [{"role": "user", "content": "你好，你能帮我做什么？"}], "files": skill_files},
-        config=config, context=ctx, version="v2",
+        config=config,
+        context=ctx,
+        version="v2",
     )
     msgs = r1.get("messages", []) if isinstance(r1, dict) else r1.value.get("messages", [])
-    print("Round 1:", next(
-        (m.content for m in reversed(msgs) if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"),
-        ""
-    ))
+    print(
+        "Round 1:",
+        next(
+            (
+                m.content
+                for m in reversed(msgs)
+                if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"
+            ),
+            "",
+        ),
+    )
 
     # 第二轮（同一 session，Agent 记得上下文；并触发记忆写入）
     r2 = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": "记住：我以后都希望用简洁的表格展示数据，不要冗长报告"}], "files": skill_files},
-        config=config, context=ctx, version="v2",
+        {
+            "messages": [
+                {"role": "user", "content": "记住：我以后都希望用简洁的表格展示数据，不要冗长报告"}
+            ],
+            "files": skill_files,
+        },
+        config=config,
+        context=ctx,
+        version="v2",
     )
     msgs2 = r2.get("messages", []) if isinstance(r2, dict) else r2.value.get("messages", [])
-    print("Round 2:", next(
-        (m.content for m in reversed(msgs2) if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"),
-        ""
-    ))
+    print(
+        "Round 2:",
+        next(
+            (
+                m.content
+                for m in reversed(msgs2)
+                if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"
+            ),
+            "",
+        ),
+    )
 
 
 async def demo_hitl():
@@ -77,8 +100,12 @@ async def demo_hitl():
         datasource=DatasourceConfig(
             collection_prefix="demo_prefix",
             db_params={
-                "db_type": "mysql", "host": "localhost", "port": 3306,
-                "username": "root", "password": "xxx", "database": "demo_db",
+                "db_type": "mysql",
+                "host": "localhost",
+                "port": 3306,
+                "username": "root",
+                "password": "xxx",
+                "database": "demo_db",
             },
         ),
     )
@@ -87,7 +114,9 @@ async def demo_hitl():
     print("发起查询请求...")
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": "查询最近7天的订单总量"}], "files": skill_files},
-        config=config, context=ctx, version="v2",
+        config=config,
+        context=ctx,
+        version="v2",
     )
 
     if hasattr(result, "interrupts") and result.interrupts:
@@ -108,12 +137,17 @@ async def demo_hitl():
 
         result2 = await agent.ainvoke(
             Command(resume={"decisions": decisions}),
-            config=config, version="v2",
+            config=config,
+            version="v2",
         )
         msgs = result2.value.get("messages", [])
         final = next(
-            (m.content for m in reversed(msgs) if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"),
-            ""
+            (
+                m.content
+                for m in reversed(msgs)
+                if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"
+            ),
+            "",
         )
         print("执行完成:", final[:300] + "..." if len(final) > 300 else final)
     else:
@@ -133,8 +167,13 @@ async def demo_streaming():
 
     print("Agent：", end="", flush=True)
     async for event in agent.astream_events(
-        {"messages": [{"role": "user", "content": "介绍一下你的数据分析能力和可用工具"}], "files": skill_files},
-        config=config, context=ctx, version="v2",
+        {
+            "messages": [{"role": "user", "content": "介绍一下你的数据分析能力和可用工具"}],
+            "files": skill_files,
+        },
+        config=config,
+        context=ctx,
+        version="v2",
     ):
         kind = event.get("event")
         if kind == "on_chat_model_stream":
@@ -170,12 +209,18 @@ async def demo_skills_trigger():
         config = {"configurable": {"thread_id": str(uuid7())}}
         r = await agent.ainvoke(
             {"messages": [{"role": "user", "content": q}], "files": skill_files},
-            config=config, context=ctx, version="v2",
+            config=config,
+            context=ctx,
+            version="v2",
         )
         msgs = r.get("messages", []) if isinstance(r, dict) else r.value.get("messages", [])
         answer = next(
-            (m.content for m in reversed(msgs) if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"),
-            ""
+            (
+                m.content
+                for m in reversed(msgs)
+                if hasattr(m, "content") and m.content and m.__class__.__name__ == "AIMessage"
+            ),
+            "",
         )
         print("回复预览：", answer[:200] + "..." if len(answer) > 200 else answer)
 

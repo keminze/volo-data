@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 @dataclass
 class DatasourceConfig:
     """单个数据源的连接配置。"""
+
     collection_prefix: str = ""
     db_params: dict = field(default_factory=dict)
 
@@ -29,6 +30,7 @@ class AgentContext:
         allow_hitl:     是否允许人机交互（需要用户确认的操作）
         language:       用户偏好语言（zh / en）
     """
+
     user_id: str = "anonymous"
     datasource: DatasourceConfig = field(default_factory=DatasourceConfig)
     allow_hitl: bool = True

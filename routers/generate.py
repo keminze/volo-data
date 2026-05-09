@@ -162,9 +162,7 @@ async def get_task_stream(task_id: str, request: Request):
                     break
 
                 json_data = json.loads(data)
-                yield (
-                    f"event: {json_data['event']}\n" f"data: {json.dumps(json_data['data'])}\n\n"
-                )
+                yield (f"event: {json_data['event']}\ndata: {json.dumps(json_data['data'])}\n\n")
 
                 # 有新消息则重置 idle 时间
                 idle_start = asyncio.get_event_loop().time()

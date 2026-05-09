@@ -49,7 +49,9 @@ async def _load_session_hitl_map() -> dict[str, list[str]]:
 async def _save_session_hitl_map(session_id: str, hitl_tools: list[str]) -> None:
     """将 session → hitl_tools 映射持久化到 Redis。"""
     try:
-        await redis_client.hset(_REDIS_HITL_KEY, session_id, json.dumps(hitl_tools, ensure_ascii=False))
+        await redis_client.hset(
+            _REDIS_HITL_KEY, session_id, json.dumps(hitl_tools, ensure_ascii=False)
+        )
     except Exception:
         pass
 
@@ -58,6 +60,7 @@ async def _save_session_hitl_map(session_id: str, hitl_tools: list[str]) -> None
 async def lifespan(app: FastAPI):
     # Startup: 初始化 Redis Store 和 Checkpointer（创建索引、预置记忆文件）
     from experimental_agent.agent import _checkpointer, agent_store
+
     await _checkpointer.asetup()
     await agent_store.setup()
     await init_agent_store()
@@ -118,10 +121,15 @@ class DatasourceRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(..., description="对话消息列表。首轮对话传全部消息；多轮对话（有 session_id）只需传最新一条 user 消息，历史由 checkpointer 维护")
+    messages: list[ChatMessage] = Field(
+        ...,
+        description="对话消息列表。首轮对话传全部消息；多轮对话（有 session_id）只需传最新一条 user 消息，历史由 checkpointer 维护",
+    )
     session_id: str | None = Field(None, description="会话 ID（thread_id），多轮对话必须保持一致")
     user_id: str = Field("anonymous", description="用户唯一标识，用于隔离记忆")
-    datasource: DatasourceRequest | None = Field(None, description="数据源配置，留空则查询用户已创建的连接")
+    datasource: DatasourceRequest | None = Field(
+        None, description="数据源配置，留空则查询用户已创建的连接"
+    )
     hitl_tools: list[str] = Field(
         default_factory=list,
         description="需要 HITL 确认的工具名列表，如 ['execute_sql']。留空则不打断任何操作。",
@@ -131,13 +139,19 @@ class ChatRequest(BaseModel):
 
 class HITLDecision(BaseModel):
     type: str = Field(..., description="决策类型：approve / edit / reject")
-    edited_action: dict | None = Field(None, description="当 type=edit 时，传入修改后的工具名和参数")
+    edited_action: dict | None = Field(
+        None, description="当 type=edit 时，传入修改后的工具名和参数"
+    )
 
 
 class ResumeRequest(BaseModel):
     session_id: str = Field(..., description="需要恢复的会话 ID（必须与原请求一致）")
-    decisions: list[HITLDecision] = Field(..., description="针对每个待确认工具调用的决策，顺序需与 interrupt 中 action_requests 一致")
-    user_id: str = Field("anonymous", description="用户唯一标识，用于构建 context（需与原请求一致）")
+    decisions: list[HITLDecision] = Field(
+        ..., description="针对每个待确认工具调用的决策，顺序需与 interrupt 中 action_requests 一致"
+    )
+    user_id: str = Field(
+        "anonymous", description="用户唯一标识，用于构建 context（需与原请求一致）"
+    )
     datasource: DatasourceRequest | None = Field(None, description="数据源配置（需与原请求一致）")
     hitl_tools: list[str] = Field(
         default_factory=list,
@@ -168,8 +182,11 @@ def _build_context(req: ChatRequest) -> AgentContext:
             question = m.content
             break
     return AgentContext(
-        user_id=req.user_id, datasource=ds, language=req.language,
-        session_id=req.session_id or "", question=question,
+        user_id=req.user_id,
+        datasource=ds,
+        language=req.language,
+        session_id=req.session_id or "",
+        question=question,
     )
 
 
@@ -179,8 +196,11 @@ def _build_context_from_resume(req: ResumeRequest) -> AgentContext:
         ds.collection_prefix = req.datasource.collection_prefix
         ds.db_params = req.datasource.db_params
     return AgentContext(
-        user_id=req.user_id, datasource=ds, language=req.language,
-        session_id=req.session_id, question="",
+        user_id=req.user_id,
+        datasource=ds,
+        language=req.language,
+        session_id=req.session_id,
+        question="",
     )
 
 
@@ -237,7 +257,9 @@ def _extract_interrupt_info(result) -> dict | None:
 
 def _extract_answer(result) -> str:
     """从 agent 调用结果中提取最终 AI 回复文本。"""
-    msgs = result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    msgs = (
+        result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    )
     answer = ""
     for msg in msgs:
         if isinstance(msg, AIMessage) and msg.content:
@@ -250,7 +272,11 @@ def _extract_answer(result) -> str:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "volo-data-deepagent-v2", "features": ["hitl", "memory", "skills", "context-compression"]}
+    return {
+        "status": "ok",
+        "service": "volo-data-deepagent-v2",
+        "features": ["hitl", "memory", "skills", "context-compression"],
+    }
 
 
 @app.post("/agent/chat", response_model=ChatResponse)
@@ -297,7 +323,9 @@ async def chat(req: ChatRequest):
     # 提取最终回复和工具调用记录
     answer = _extract_answer(result)
     tool_calls_log = []
-    msgs = result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    msgs = (
+        result.get("messages", []) if isinstance(result, dict) else result.value.get("messages", [])
+    )
     for msg in msgs:
         if isinstance(msg, AIMessage) and msg.tool_calls:
             for tc in msg.tool_calls:
@@ -397,10 +425,13 @@ async def chat_stream(req: ChatRequest):
                         yield _sse("token", {"text": chunk.content})
 
                 elif kind == "on_tool_start":
-                    yield _sse("tool_start", {
-                        "tool": event.get("name"),
-                        "args": data.get("input", {}),
-                    })
+                    yield _sse(
+                        "tool_start",
+                        {
+                            "tool": event.get("name"),
+                            "args": data.get("input", {}),
+                        },
+                    )
 
                 elif kind == "on_tool_end":
                     output = data.get("output")
@@ -410,19 +441,24 @@ async def chat_stream(req: ChatRequest):
                         result_content = output[:500]
                     else:
                         try:
-                            result_content = json.dumps(output, ensure_ascii=False, default=str)[:500]
+                            result_content = json.dumps(output, ensure_ascii=False, default=str)[
+                                :500
+                            ]
                         except Exception:
                             result_content = str(output)[:500]
                     yield _sse("tool_result", {"tool": event.get("name"), "result": result_content})
 
                 elif kind == "on_interrupt":
                     interrupt_value = data.get("interrupt", {})
-                    yield _sse("interrupt", {
-                        "session_id": session_id,
-                        "action_requests": interrupt_value.get("action_requests", []),
-                        "review_configs": interrupt_value.get("review_configs", []),
-                        "message": "操作需要您的确认，请通过 POST /agent/chat/resume 恢复执行",
-                    })
+                    yield _sse(
+                        "interrupt",
+                        {
+                            "session_id": session_id,
+                            "action_requests": interrupt_value.get("action_requests", []),
+                            "review_configs": interrupt_value.get("review_configs", []),
+                            "message": "操作需要您的确认，请通过 POST /agent/chat/resume 恢复执行",
+                        },
+                    )
 
             yield _sse("done", {"session_id": session_id})
 
@@ -474,9 +510,11 @@ async def get_session_state(session_id: str):
         interrupt_details = []
         if has_interrupt:
             for intr in state.interrupts:
-                interrupt_details.append({
-                    "value": intr.value if hasattr(intr, "value") else str(intr),
-                })
+                interrupt_details.append(
+                    {
+                        "value": intr.value if hasattr(intr, "value") else str(intr),
+                    }
+                )
         return {
             "session_id": session_id,
             "exists": state is not None,
@@ -523,10 +561,14 @@ async def get_audit_logs(
                 count_query = count_query.where(SqlAuditLog.status == status)
             if start_time:
                 query = query.where(SqlAuditLog.created_at >= dt.fromisoformat(start_time))
-                count_query = count_query.where(SqlAuditLog.created_at >= dt.fromisoformat(start_time))
+                count_query = count_query.where(
+                    SqlAuditLog.created_at >= dt.fromisoformat(start_time)
+                )
             if end_time:
                 query = query.where(SqlAuditLog.created_at <= dt.fromisoformat(end_time))
-                count_query = count_query.where(SqlAuditLog.created_at <= dt.fromisoformat(end_time))
+                count_query = count_query.where(
+                    SqlAuditLog.created_at <= dt.fromisoformat(end_time)
+                )
 
             total_result = await db.execute(count_query)
             total = total_result.scalar() or 0

@@ -72,13 +72,18 @@ def _get_vanna(collection_prefix: str, db_params: dict) -> Vanna:
 
 @tool(parse_docstring=True)
 async def generate_sql(
-    user_question: Annotated[str, "用户的自然语言问题，务必明确说明所有需要查询的指标（例如：'查询最近30天销售额、9月整月销售额、历史总额'）"],
+    user_question: Annotated[
+        str,
+        "用户的自然语言问题，务必明确说明所有需要查询的指标（例如：'查询最近30天销售额、9月整月销售额、历史总额'）",
+    ],
     runtime: ToolRuntime[AgentContext],
     collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
     db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
     allow_llm_to_see_data: Annotated[bool, "是否允许 LLM 查看数据样例以提升 SQL 质量"] = True,
     ddl_list: Annotated[list[str] | None, "预查询的 DDL 列表；若传入则跳过内部 DDL 查询"] = None,
-    question_sql_list: Annotated[list | None, "预查询的相似问题-SQL列表；若传入则跳过内部相似问题查询"] = None,
+    question_sql_list: Annotated[
+        list | None, "预查询的相似问题-SQL列表；若传入则跳过内部相似问题查询"
+    ] = None,
 ) -> dict:
     """根据自然语言问题生成 SQL 查询语句（不执行）。
 
@@ -135,12 +140,9 @@ async def get_ddl(
     runtime: ToolRuntime[AgentContext],
     collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
     db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
-    top_k: Annotated[int, Field(
-            default=5,
-            ge=1,
-            le=10,
-            description="返回的最大 DDL 数量，范围1~10"
-        )] = 5,
+    top_k: Annotated[
+        int, Field(default=5, ge=1, le=10, description="返回的最大 DDL 数量，范围1~10")
+    ] = 5,
 ) -> dict:
     """获取与用户问题相关的数据库表结构（DDL）。
 
@@ -183,12 +185,9 @@ async def get_question_sql(
     runtime: ToolRuntime[AgentContext],
     collection_prefix: Annotated[str, "ChromaDB 集合前缀；若留空则从运行时上下文自动读取"] = "",
     db_params: Annotated[dict, "数据库连接参数；若留空则从运行时上下文自动读取"] = None,
-    top_k: Annotated[int, Field(
-            default=3,
-            ge=1,
-            le=5,
-            description="返回的最大历史问题-SQL对数量，范围 1~5"
-        )] = 3,
+    top_k: Annotated[
+        int, Field(default=3, ge=1, le=5, description="返回的最大历史问题-SQL对数量，范围 1~5")
+    ] = 3,
 ) -> dict:
     """获取与用户问题相似的历史问题及对应 SQL。
 
@@ -284,19 +283,31 @@ async def execute_sql(
     if not pending_audit:
         return {
             "error": "此 SQL 未通过审计。请按正确顺序执行：generate_sql → audit_sql → execute_sql",
-            "rows": 0, "columns": [], "data": "[]", "sample_data": "[]",
+            "rows": 0,
+            "columns": [],
+            "data": "[]",
+            "sample_data": "[]",
         }
 
     if not effective_prefix or not effective_db_params:
         result = {
             "error": "未找到数据源配置。请在请求中传入 datasource 参数，或在 .env 中设置默认数据源。",
-            "rows": 0, "columns": [], "data": "[]", "sample_data": "[]",
+            "rows": 0,
+            "columns": [],
+            "data": "[]",
+            "sample_data": "[]",
         }
         await _upsert_audit_log(ctx, sql, "error", 0, result["error"], 0, effective_prefix)
         return result
 
     if not sql or not sql.strip():
-        result = {"error": "SQL 语句为空", "rows": 0, "columns": [], "data": "[]", "sample_data": "[]"}
+        result = {
+            "error": "SQL 语句为空",
+            "rows": 0,
+            "columns": [],
+            "data": "[]",
+            "sample_data": "[]",
+        }
         await _upsert_audit_log(ctx, sql, "error", 0, "SQL 语句为空", 0, effective_prefix)
         return result
 
@@ -307,12 +318,16 @@ async def execute_sql(
 
         if df is not None and not df.empty:
             df = df.where(pd.notnull(df), None)
-            await _upsert_audit_log(ctx, sql, "success", len(df), None, elapsed_ms, effective_prefix)
+            await _upsert_audit_log(
+                ctx, sql, "success", len(df), None, elapsed_ms, effective_prefix
+            )
             return {
                 "rows": len(df),
                 "columns": list(df.columns),
                 "data": df.to_json(orient="records", force_ascii=False),
-                "sample_data": df.sample(n=min(20, len(df))).to_json(orient="records", force_ascii=False),
+                "sample_data": df.sample(n=min(20, len(df))).to_json(
+                    orient="records", force_ascii=False
+                ),
             }
         else:
             await _upsert_audit_log(ctx, sql, "success", 0, None, elapsed_ms, effective_prefix)
@@ -325,7 +340,9 @@ async def execute_sql(
 
 @tool(parse_docstring=True)
 async def generate_compute_code(
-    metrics: Annotated[str, "描述需要计算的指标或处理需求（例如：'计算各分类的销售额占比'、'按月份聚合订单量'）"],
+    metrics: Annotated[
+        str, "描述需要计算的指标或处理需求（例如：'计算各分类的销售额占比'、'按月份聚合订单量'）"
+    ],
     columns: Annotated[list, "数据列名列表"],
     sample_data: Annotated[list, "最多20行的样例数据（list of dict）"],
 ) -> dict:
@@ -403,12 +420,14 @@ async def generate_charts(
 
         prompt = ChatPromptTemplate.from_template(Charts_Decision_Prompt)
         chain = prompt | _llm
-        resp = await chain.ainvoke({
-            "input": user_question,
-            "rows": len(df),
-            "columns": list(df.columns),
-            "sample_data": df.sample(n=min(20, len(df))).to_dict(orient="records"),
-        })
+        resp = await chain.ainvoke(
+            {
+                "input": user_question,
+                "rows": len(df),
+                "columns": list(df.columns),
+                "sample_data": df.sample(n=min(20, len(df))).to_dict(orient="records"),
+            }
+        )
 
         decision = _safe_json_loads(resp.content.strip())
         need_chart = decision.get("need_chart", False)
@@ -449,14 +468,16 @@ async def list_available_datasources(runtime: ToolRuntime[AgentContext]) -> list
 
     # 1. 如果 runtime context 中已携带数据源，优先返回
     if ctx.datasource.collection_prefix and ctx.datasource.db_params:
-        return [{
-            "id": -1,
-            "name": "请求指定数据源",
-            "collection_prefix": ctx.datasource.collection_prefix,
-            "db_type": ctx.datasource.db_params.get("db_type", "unknown"),
-            "host": ctx.datasource.db_params.get("host", ""),
-            "database": ctx.datasource.db_params.get("database", ""),
-        }]
+        return [
+            {
+                "id": -1,
+                "name": "请求指定数据源",
+                "collection_prefix": ctx.datasource.collection_prefix,
+                "db_type": ctx.datasource.db_params.get("db_type", "unknown"),
+                "host": ctx.datasource.db_params.get("host", ""),
+                "database": ctx.datasource.db_params.get("database", ""),
+            }
+        ]
 
     # 2. 从 DBConnection 表查询该用户的所有数据源
     try:
@@ -549,17 +570,19 @@ async def _upsert_audit_log(
                 existing.execution_ms = execution_ms
                 existing.datasource = datasource or existing.datasource
             else:
-                db.add(SqlAuditLog(
-                    user_id=ctx.user_id,
-                    session_id=ctx.session_id,
-                    question=ctx.question,
-                    sql=sql,
-                    status=status,
-                    row_count=row_count,
-                    error_message=error_message,
-                    execution_ms=execution_ms,
-                    datasource=datasource,
-                ))
+                db.add(
+                    SqlAuditLog(
+                        user_id=ctx.user_id,
+                        session_id=ctx.session_id,
+                        question=ctx.question,
+                        sql=sql,
+                        status=status,
+                        row_count=row_count,
+                        error_message=error_message,
+                        execution_ms=execution_ms,
+                        datasource=datasource,
+                    )
+                )
             await db.commit()
     except Exception:
         pass

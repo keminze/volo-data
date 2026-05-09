@@ -165,9 +165,7 @@ class BasePyodideSandbox:
         if not skip_deno_check:
             # Check if Deno is installed
             try:
-                subprocess.run(
-                    ["deno", "--version"], check=True, capture_output=True
-                )  # noqa: S607, S603
+                subprocess.run(["deno", "--version"], check=True, capture_output=True)  # noqa: S607, S603
             except subprocess.CalledProcessError as e:
                 msg = "Deno is installed, but running it failed."
                 raise RuntimeError(msg) from e
@@ -624,7 +622,7 @@ class PyodideSandboxTool(BaseTool):
             required_keys = {"session_bytes", "session_metadata", "messages"}
             actual_keys = set(state) if isinstance(state, dict) else set(state.__dict__)
             if missing_keys := required_keys - actual_keys:
-                error_msg = "Input state is missing " f"the following required keys: {missing_keys}"
+                error_msg = f"Input state is missing the following required keys: {missing_keys}"
                 raise ValueError(error_msg)
 
             if isinstance(state, dict):
@@ -681,7 +679,7 @@ class PyodideSandboxTool(BaseTool):
             required_keys = {"session_bytes", "session_metadata", "messages"}
             actual_keys = set(state) if isinstance(state, dict) else set(state.__dict__)
             if missing_keys := required_keys - actual_keys:
-                error_msg = "Input state is missing " f"the following required keys: {missing_keys}"
+                error_msg = f"Input state is missing the following required keys: {missing_keys}"
                 raise ValueError(error_msg)
 
             if isinstance(state, dict):

@@ -18,12 +18,12 @@ from langchain_core.messages import (
 )
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from config.database import AsyncSession, async_session, get_db
-from config.models import Conversation, DBConnection, Message, ToolCall
+from config.models import Conversation, Message, ToolCall
 from config.parameter import AgentChatRequest, AgentResumeRequest
 from dependencies import get_current_user
 from experimental_agent.agent import create_analyst_agent, ensure_user_memories
@@ -555,7 +555,7 @@ async def get_session_state(
             "next_nodes": list(state.next) if state.next else [],
         }
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Session not found: {e}")
+        raise HTTPException(status_code=404, detail=f"Session not found: {e}") from e
 
 
 @router.get("/audit")
@@ -572,7 +572,8 @@ async def get_audit_logs(
     """查询 SQL 审计日志，支持筛选和分页。非 admin 只能查自己的记录。"""
     from datetime import datetime as dt
 
-    from sqlalchemy import func as sa_func, select
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import select
 
     from config.models import SqlAuditLog
 
@@ -634,7 +635,7 @@ async def get_audit_logs(
                 ],
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查询审计日志失败: {e}")
+        raise HTTPException(status_code=500, detail=f"查询审计日志失败: {e}") from e
 
 
 # ─── 内部辅助 ──────────────────────────────────────────────────────────────────

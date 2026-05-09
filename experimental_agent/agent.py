@@ -49,7 +49,10 @@ load_dotenv()
 
 # ─── Redis 连接配置 ──────────────────────────────────────────────────────────────
 # Redis Search 索引只能在 db=0 上创建，因此 Agent 专用 db 需为 0
-_REDIS_URL = os.getenv("REDIS_AGENT_URL", f"redis://:{os.getenv('REDIS_PASSWORD', '')}@{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0")
+_REDIS_URL = os.getenv(
+    "REDIS_AGENT_URL",
+    f"redis://:{os.getenv('REDIS_PASSWORD', '')}@{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0",
+)
 
 # ─── 全局共享 Store（长期记忆，跨会话持久，Redis 存储）─────────────────────────
 # 必须在 async 上下文中创建（AsyncRedisStore.__init__ 需要 running event loop）
@@ -68,6 +71,7 @@ async def init_store_and_checkpointer() -> None:
     global agent_store, _checkpointer
     agent_store = AsyncRedisStore(redis_url=_REDIS_URL)
     _checkpointer = AsyncRedisSaver(redis_url=_REDIS_URL)
+
 
 # ─── 技能文件路径（相对于本文件）─────────────────────────────────────────────
 _SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
@@ -249,6 +253,7 @@ def create_analyst_agent(
         """工厂函数，支持带/不带 runtime 的调用。
         namespace 按 (agent_namespace, user_id) 隔离，每个用户拥有独立记忆空间。
         """
+
         def _user_namespace(rt) -> tuple:
             user_id = "anonymous"
             if rt is not None and hasattr(rt, "context") and rt.context is not None:
@@ -331,6 +336,7 @@ def create_analyst_agent(
 
 
 # ─── 异步初始化（在 FastAPI lifespan 中调用）─────────────────────────────────────
+
 
 async def init_agent_store(namespace: str = "volo-analyst") -> None:
     """初始化 Agent Store：为默认用户预置记忆模板到 Redis。
