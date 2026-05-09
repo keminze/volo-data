@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { listChatMessages } from "@/lib/api/chat";
 import { getConnectionInfo } from "@/lib/api/connections";
 import ChatContainer from "@/components/Chat/ChatContainer";
+import AgentChatContainer from "@/components/Chat/AgentChatContainer";
 import type { Message } from "@/components/Chat/types";
 import type { DataSource } from "@/components/DataSource/types";
 import { useChatStore } from "@/store/chatStore";
@@ -45,6 +46,13 @@ export default function ChatPage() {
 
   if (!chatExists) {
     return null;
+  }
+
+  const chat = chats.find((c) => c.id === chatId);
+  const mode = chat?.mode || "workflow";
+
+  if (mode === "agent") {
+    return <AgentChatContainer chatId={chatId} messages={messages} connection={connection} />;
   }
 
   return <ChatContainer chatId={chatId} messages={messages} connection={connection} />;

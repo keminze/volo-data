@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import {
   MessageSquare,
   ChevronDown,
@@ -9,6 +10,8 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  GitBranch,
+  Bot,
 } from "lucide-react";
 import { deleteChat, updateChatName } from "@/lib/api/chat";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -25,6 +28,7 @@ export default function SidebarGroup({
   expanded?: boolean;
   onToggle?: () => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(expanded ?? true);
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -36,8 +40,8 @@ export default function SidebarGroup({
   const pathname = usePathname();
   const activeChatId = Number(pathname.split("/").pop());
 
-  // ✅ 使用全局聊天列表
-  const { chats, refreshChats, removeChat } = useChatStore();
+  // ✅ 使用全局聊天列表（按 mode 分组）
+  const { workflowChats, agentChats, refreshChats, removeChat } = useChatStore();
 
   // 🔄 拉取聊天列表（仅在展开时）
   useEffect(() => {
@@ -149,7 +153,14 @@ export default function SidebarGroup({
 
         {open && !collapsed && (
           <div className="mt-1 ml-2 flex flex-col space-y-1">
-            {chats.map((chat) => (
+            {/* 工作流对话 */}
+            {workflowChats.length > 0 && (
+              <div className="flex items-center gap-1 px-2 pt-2 pb-1">
+                <GitBranch size={12} className="text-gray-400" />
+                <span className="text-[11px] text-gray-400 font-medium">{t("chat.workflowSection")}</span>
+              </div>
+            )}
+            {workflowChats.map((chat: any) => (
               <div
                 key={chat.id}
                 data-menu-id={chat.id}
@@ -175,9 +186,87 @@ export default function SidebarGroup({
                   <>
                     <button
                       onClick={() => handleChatClick(chat.id, chat.connection_id)}
-                      className="flex items-center text-left flex-1 min-w-0" // ✅ 关键：限制宽度以启用省略
+                      className="flex items-center text-left flex-1 min-w-0"
                     >
                       <MessageSquare size={16} className="mr-2 text-gray-600 flex-shrink-0" />
+                      <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap text-gray-800">
+                        {chat.name}
+                      </span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpenId(menuOpenId === chat.id ? null : chat.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-gray-300 transition"
+                    >
+                      <MoreHorizontal size={16} className="text-gray-600" />
+                    </button>
+                    {menuOpenId === chat.id && (
+                      <div className="absolute right-6 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-20 w-36">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRenameStart(chat.id, chat.name);
+                          }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full"
+                        >
+                          <Pencil size={14} />
+                          重命名
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget(chat.id);
+                          }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full"
+                        >
+                          <Trash2 size={14} />
+                          删除
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+
+            {/* Agent 对话 */}
+            {agentChats.length > 0 && (
+              <div className="flex items-center gap-1 px-2 pt-2 pb-1">
+                <Bot size={12} className="text-gray-400" />
+                <span className="text-[11px] text-gray-400 font-medium">{t("chat.agentSection")}</span>
+              </div>
+            )}
+            {agentChats.map((chat: any) => (
+              <div
+                key={chat.id}
+                data-menu-id={chat.id}
+                className={`relative group flex items-center justify-between text-sm p-2 rounded-md transition cursor-pointer
+                  ${activeChatId === chat.id
+                    ? "bg-gray-200 font-medium"
+                    : "text-gray-700 hover:bg-gray-200"
+                  }
+                `}
+              >
+                {editingId === chat.id ? (
+                  <div className="flex items-center gap-1 flex-1">
+                    <input
+                      ref={inputRef}
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => handleKeyDown(e, chat.id)}
+                      className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm text-gray-800 focus:ring-2 focus:ring-blue-400 outline-none"
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleChatClick(chat.id, chat.connection_id)}
+                      className="flex items-center text-left flex-1 min-w-0"
+                    >
+                      <Bot size={16} className="mr-2 text-gray-600 flex-shrink-0" />
                       <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap text-gray-800">
                         {chat.name}
                       </span>

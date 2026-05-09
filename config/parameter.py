@@ -103,6 +103,7 @@ class ConversationCreate(BaseModel):
     name: str | None = Field(None, description="对话名称")
     connection_id: Optional[int] = Field(None, description="关联的数据源连接 ID")
     description: Optional[str] = Field(None, description="任务背景")
+    mode: str = Field("workflow", description="对话模式：workflow（智能BI工作流）/ agent（BI Agent）")
 
 
 class GenerateRequest(BaseModel):
@@ -112,3 +113,15 @@ class GenerateRequest(BaseModel):
     allow_llm_to_see_data: bool = Field(False, description="是否允许大语言模型访问数据")
     skip_charts: bool = Field(True, description="True:跳过生成图表的节点;False:经过生成图表的节点")
     skip_report: bool = Field(True, description="True:跳过生成报告的节点;False:经过生成报告的节点")
+
+
+class AgentChatRequest(BaseModel):
+    conversation_id: int = Field(..., description="对话 ID（同时作为 agent session_id）")
+    input: str = Field(..., description="用户消息")
+    hitl_tools: list[str] = Field(default_factory=list, description="需要 HITL 确认的工具列表，如 ['execute_sql']")
+    language: str = Field("zh", description="语言偏好：zh / en")
+
+
+class AgentResumeRequest(BaseModel):
+    conversation_id: int = Field(..., description="需要恢复的对话 ID")
+    decisions: list[dict] = Field(..., description="HITL 决策列表，每项含 type: approve/edit/reject")

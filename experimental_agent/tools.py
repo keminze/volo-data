@@ -2,10 +2,9 @@
 数据分析 Agent 工具集
 
 工具通过 ToolRuntime[AgentContext] 读取用户身份和数据源配置，无需在消息体中传递敏感参数。
-核心工具：generate_sql / execute_sql / generate_compute_code / run_compute / generate_charts / generate_analysis_report
+核心工具：generate_sql / execute_sql / generate_compute_code / run_compute / generate_charts
 """
 
-import datetime
 import json
 import time
 import os
@@ -39,7 +38,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_sandbox import SyncPyodideSandbox
 
 from services.db import CollectionSuffix, chromadb_client, connect_to_database
-from services.prompt import Charts_Decision_Prompt, Code_Decision_Prompt, Generate_Report_Prompt
+from services.prompt import Charts_Decision_Prompt, Code_Decision_Prompt
 from services.tools import fix_json_string, generate_echarts_option
 from services.vanna_service import Vanna
 
@@ -429,41 +428,6 @@ async def generate_charts(
         return {"need_charts": False, "charts": [], "error": str(e)}
 
 
-@tool(parse_docstring=True)
-async def generate_analysis_report(
-    user_question: Annotated[str, "用户的自然语言问题"],
-    data: Annotated[str, "最终数据的 JSON 字符串（优先使用计算结果）"],
-    sql: Annotated[str, "执行的 SQL 语句"],
-    ddl: Annotated[list, "相关表结构（DDL 列表）"],
-    user_history: Annotated[list, "近期对话历史，用于理解上下文"] = None,
-) -> str:
-    """生成专业的商业洞察分析报告（Markdown 格式）。
-
-    使用场景：数据查询完成后，为用户提供深度解读、趋势分析和行动建议。
-
-    Args:
-        user_question: 用户的自然语言问题
-        data: 最终数据的 JSON 字符串（优先使用计算结果）
-        sql: 执行的 SQL 语句
-        ddl: 相关表结构（DDL 列表）
-        user_history: 近期对话历史，用于理解上下文
-
-    Returns:
-        Markdown 格式的分析报告文本。
-    """
-    prompt = ChatPromptTemplate.from_template(Generate_Report_Prompt)
-    chain = prompt | _llm
-    resp = await chain.ainvoke({
-        "input": user_question,
-        "data": data,
-        "sql": sql,
-        "ddl": ddl,
-        "user_history": user_history or [],
-        "now": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    })
-    return resp.content.strip()
-
-
 # ─── 数据源管理工具 ────────────────────────────────────────────────────────────
 
 
@@ -658,7 +622,6 @@ DATA_ANALYSIS_TOOLS = [
     run_compute,
     # 其他工具
     generate_charts,
-    generate_analysis_report,
     list_available_datasources,
     save_user_preference,
 ]

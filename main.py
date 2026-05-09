@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.database import init_db
 from middlewares.api_key_middleware import APIKeyAuthMiddleware
 from middlewares.logging import LoggingMiddleware
-from routers import auth, connection, conversation, database, generate, log
+from routers import agent, auth, connection, conversation, database, generate, log
 
 app = FastAPI()
 
@@ -30,6 +30,10 @@ async def on_startup():
     await init_db()
     print("数据库初始化完成")
 
+    # 初始化 BI Agent 资源（Store/Checkpointer/记忆）
+    await agent.init_agent_resources()
+    print("BI Agent 初始化完成")
+
 
 app.include_router(connection.router, prefix="/connections", tags=["数据源连接管理"])
 app.include_router(conversation.router, prefix="/conversations", tags=["对话管理"])
@@ -37,6 +41,7 @@ app.include_router(generate.router, prefix="/generate", tags=["任务生成"])
 app.include_router(database.router, prefix="/database", tags=["系统数据库管理"])
 app.include_router(log.router, prefix="/log", tags=["日志管理"])
 app.include_router(auth.router, prefix="/auth", tags=["用户认证"])
+app.include_router(agent.router, prefix="/agent", tags=["BI Agent"])
 
 
 @app.get("/health", tags=["服务检测"])

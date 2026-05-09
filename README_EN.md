@@ -31,17 +31,26 @@
 
 * Deep optimization of LLM prompts in the SQL generation stage of the open-source project [Vanna](https://github.com/vanna-ai/vanna)
 * LangGraph AI workflow
+* DeepAgents Agent
 * Unified interface for multiple databases
 * SSE real-time responses
 * Secure code sandbox
 
 ## 🆕 This Update
 
+### New Version Update Notes This update releases Volo Data BI Agent 1.0. This feature has some uncontrollability and cannot guarantee that the Agent will execute instructions exactly as requested by the user (this has not yet occurred in testing). Therefore, it is still some distance from being an enterprise-level BI Agent. Users are advised to use this feature with caution.
+
+### 2026-05-09
+This update officially iterates the experimental BI Agent service to BI Agent 1.0, primarily updating the following:
+
+- The front-end adds a distinction between agent dialogue mode and workflow dialogue mode, each using different React components.
+
+- The back-end ensures compatibility with the agent dialogue mode, including databases and APIs, and leverages the excellent DeepAgents framework for memory management, context engineering, state management, and tool management of the BI Agent.
+
+- In BI Agent version 1.0, an SQL Audit mechanism has been added to ensure that SQL is always low-risk and highly secure.
+
 ### 2026-04-27
 This minor version iteration of the experimental BI Agent service mainly optimizes the following aspects: persistent storage of conversation-generated memories, decoupling of SQL generation tools, and reducing token consumption.
-
-### 2026-04-23
-This minor version iteration of the experimental BI Agent service primarily optimizes downstream projects, some tool architectures, and APIs. Key improvements include optimizing the BI Agent's persistent memory file, fixing the inability to perform multi-turn dialogues, resolving pronunciation and repetition issues with SKILL, and removing unused tools, functions, and code.
 
 ## ✨ Key Features
 
@@ -69,12 +78,15 @@ This minor version iteration of the experimental BI Agent service primarily opti
   <img src="./demo/data.png" width="900">
 </p>
 
-### Chat Interface
-
+### Workflow chat interface
 <p align="center">
-  <img src="./demo/chat.png" width="900">
+  <img src="./demo/chat-workflow.png" width="900">
 </p>
 
+### Agent chat interface
+<p align="center">
+  <img src="./demo/chat-agent.png" width="900">
+</p>
 For more project preview information, please refer to the product user manual (currently under improvement).
 
 ## 🏗️ Core Workflow
@@ -142,42 +154,77 @@ docker-compose -f docker-compose.dev.yml up -d
 ```
 volo-data/
 ├── main.py                    # 🏁 Application entry
+├── dependencies.py            # 🔗 Dependency injection
+├── redis_client.py            # 📡 Redis client
+├── entrypoint.sh              # 🚀 Docker entrypoint script
 ├── requirements.txt           # 📦 Python dependencies
+├── pyproject.toml             # 📋 Project configuration
 ├── Dockerfile                 # 🐳 Docker configuration
 ├── docker-compose.yml         # 🧩 Full environment configuration
 ├── docker-compose.dev.yml     # 💻 Development environment configuration
-├── alembic.ini               # 🔄 Database migration configuration
-├── redis_client.py           # 📡 Redis client
+├── alembic.ini                # 🔄 Database migration configuration
 │
-├── config/                   # ⚙️ Configuration module
-│   ├── database.py          # Database configuration
-│   ├── logging_config.py    # Logging configuration
-│   ├── models.py            # SQLAlchemy models
-│   └── parameter.py         # Parameter configuration
+├── config/                    # ⚙️ Configuration module
+│   ├── database.py            # Database configuration
+│   ├── logging_config.py      # Logging configuration
+│   ├── models.py              # SQLAlchemy models
+│   └── parameter.py           # Parameter configuration
 │
-├── routers/                 # 🛤️ API routes
-│   ├── connection.py        # Data source connection
-│   ├── conversation.py      # Conversation management
-│   ├── database.py          # Database operations
-│   ├── generate.py          # Task generation
-│   └── log.py               # Log query
+├── routers/                   # 🛤️ API routes
+│   ├── agent.py               # Agent dialogue routes
+│   ├── auth.py                # Authentication routes
+│   ├── connection.py          # Data source connection
+│   ├── conversation.py        # Conversation management
+│   ├── database.py            # Database operations
+│   ├── generate.py            # Task generation
+│   └── log.py                 # Log query
 │
-├── services/                # 🧩 Business logic
-│   ├── db.py                # Database services
-│   ├── graph.py             # Graph related operations
-│   ├── graph_sse.py         # SSE streaming responses
-│   ├── tools.py             # Utility functions
-│   ├── prompt.py            # Prompt management
-│   ├── vanna.py             # SQL generation
-│   └── log.py               # Log services
+├── services/                  # 🧩 Business logic
+│   ├── auth.py                # Authentication service
+│   ├── db.py                  # Database services
+│   ├── graph.py               # Graph related operations
+│   ├── graph_sse.py           # SSE streaming responses
+│   ├── tools.py               # Utility functions
+│   ├── prompt.py              # Prompt management
+│   ├── vanna_service.py       # SQL generation
+│   └── log.py                 # Log services
 │
-├── middlewares/             # 🔧 Middleware
-│   ├── api_key_middleware.py # API Key authentication
-│   └── logging.py            # Logging middleware
+├── middlewares/               # 🔧 Middleware
+│   ├── api_key_middleware.py  # API Key authentication
+│   └── logging.py             # Logging middleware
 │
-├── vanna/                   # 🤖 Vanna SQL generation
-├── frontend/                # 🎨 Next.js frontend
-└── alembic/                 # 🔁 Database migration
+├── experimental_agent/        # 🧪 BI Agent service
+│   ├── agent.py               # Agent core logic
+│   ├── context.py             # Context management
+│   ├── tools.py               # Agent toolset
+│   ├── server.py              # Agent server
+│   ├── memories/              # Memory storage
+│   └── skills/                # Agent skills
+│       ├── chart-expert/      # Chart expert
+│       ├── report-writer/     # Report writer
+│       └── sql-optimizer/     # SQL optimizer
+│
+├── langchain_sandbox/         # 🔒 Code sandbox
+│   └── pyodide.py             # Pyodide sandbox implementation
+│
+├── tests/                     # 🧪 Tests
+│   └── test_basic.py          # Basic tests
+│
+├── vanna/                     # 🤖 Vanna SQL generation
+├── frontend/                  # 🎨 Next.js frontend
+│   └── src/
+│       ├── app/               # Page routes
+│       ├── components/        # UI components
+│       │   ├── Chat/          # Chat components
+│       │   ├── DataSource/    # Data source components
+│       │   ├── Sidebar/       # Sidebar components
+│       │   └── ui/            # Common UI components
+│       ├── i18n/              # Internationalization
+│       ├── lib/               # Utility libraries
+│       └── store/             # State management
+│
+└── alembic/                   # 🔁 Database migration
+    └── versions/              # Migration versions
 ```
 
 ## Local Development

@@ -29,11 +29,11 @@ metadata:
 - 提出 1-2 个可落地的具体建议
 - 建议应与数据直接关联，不空泛
 
-## 调用 generate_analysis_report
+## 执行方式
 
-传入参数：
-- `user_question`：用户原始问题
-- `data`：最终数据（优先用 `run_compute` 的 `code_result`，否则用 `execute_sql` 的 `data`）
-- `sql`：执行的 SQL 语句
-- `ddl`：相关表 DDL
-- `user_history`：近期对话历史（用于理解上下文）
+本 skill 为能力指引，Agent 收到报告请求时，无需调用任何工具，直接基于已有的查询结果（SQL 执行结果 / 计算结果 / 对话历史）按上述结构组织回答，生成 Markdown 格式报告。
+
+数据来源优先级：
+1. `run_compute` 的 `code_result`（如有复杂计算）
+2. `execute_sql` 的执行结果
+3. 对话历史中的上下文

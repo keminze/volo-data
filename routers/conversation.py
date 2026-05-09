@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
 from config.logging_config import logger
-from config.models import Conversation, DBConnection, Message
+from config.models import Conversation, DBConnection, Message, ToolCall
 from config.parameter import ConversationCreate
 from dependencies import get_current_user
 from services.auth import User
@@ -37,6 +37,7 @@ async def create_conversation(
             name=req.name,
             connection_id=req.connection_id,
             description=req.description,
+            mode=req.mode,
         )
         db.add(new_conversation)
         await db.commit()
@@ -54,15 +55,15 @@ async def create_conversation(
 
 @router.get("/list", summary="列出用户所有对话")
 async def list_conversations(
+    mode: str | None = Query(None, description="按模式筛选：workflow / agent"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        result = await db.execute(
-            select(Conversation)
-            .where(Conversation.user_id == str(current_user.id))
-            .order_by(Conversation.created_at.desc())
-        )
+        query = select(Conversation).where(Conversation.user_id == str(current_user.id))
+        if mode:
+            query = query.where(Conversation.mode == mode)
+        result = await db.execute(query.order_by(Conversation.created_at.desc()))
         conversations = result.scalars().all()
         logger.info(f"Listed {len(conversations)} conversations for user_id: {current_user.id}")
         return [c.get_info() for c in conversations]
@@ -165,9 +166,29 @@ async def get_conversation_messages(conversation_id: int, db: AsyncSession = Dep
         messages = result.scalars().all()
         logger.info(f"Retrieved {len(messages)} messages for conversation ID: {conversation_id}")
 
+        # 批量收集所有 tool_calls id，一次性查询
+        all_tc_ids = []
+        for msg in messages:
+            tc_ids = msg.tool_calls
+            if tc_ids and isinstance(tc_ids, list):
+                all_tc_ids.extend(tc_ids)
+
+        tc_map: dict[int, dict] = {}
+        if all_tc_ids:
+            tc_result = await db.execute(select(ToolCall).where(ToolCall.id.in_(all_tc_ids)))
+            for tc in tc_result.scalars().all():
+                tc_map[tc.id] = tc.get_info()
+
         processed_messages = []
         for message in messages:
             msg_dict = message.get_info()
+
+            # 将 tool_calls id 列表替换为详情
+            tc_ids = msg_dict.get("tool_calls")
+            if tc_ids and isinstance(tc_ids, list):
+                msg_dict["tool_calls"] = [tc_map[tid] for tid in tc_ids if tid in tc_map]
+            else:
+                msg_dict["tool_calls"] = None
 
             charts = msg_dict.get("charts")
             sample_data = msg_dict.get("sample_data")

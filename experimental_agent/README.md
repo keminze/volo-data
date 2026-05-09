@@ -30,7 +30,7 @@ experimental_agent/
 | `generate_compute_code` | 生成 Python 计算代码 |
 | `run_compute` | 在沙箱中执行计算代码 |
 | `generate_charts` | 生成 ECharts 图表配置 |
-| `generate_analysis_report` | 生成商业洞察报告 |
+| `report-writer` (skill) | 通过 Skill 生成商业洞察报告，无需工具调用 |
 | `list_available_datasources` | 列出可用数据源 |
 | `save_user_preference` | 保存用户偏好到记忆 |
 

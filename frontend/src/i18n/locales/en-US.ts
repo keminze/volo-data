@@ -93,6 +93,15 @@ export default {
     creating: "Creating...",
     example: "Example",
     noDataSource: "No data sources available",
+    mode: "Chat Mode",
+    workflowMode: "Workflow",
+    agentMode: "Agent",
+    workflowSection: "Workflow",
+    agentSection: "Agent",
+    toolCallsCount: "Called {{count}} tool(s)",
+    toolArgs: "Arguments",
+    toolResult: "Result",
+    agentThinking: "Agent thinking...",
   },
   // Common
   common: {

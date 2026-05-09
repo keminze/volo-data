@@ -31,17 +31,24 @@
 
 - 针对开源项目 [Vanna](https://github.com/vanna-ai/vanna) 中 SQL 生成阶段的 LLM 提示词进行深度优化
 - LangGraph AI workflow
+- DeepAgents Agent
 - 多数据库统一接口
 - SSE 实时响应
 - 安全代码沙箱
 
 ## 🆕 本次更新
 
+### 新版本更新说明
+本次对发布了 Volo Data BI Agent 1.0，此功能存在一定的不可控性，无法保证 Agent 完全按照用户的的要求执行指令（目前测试暂未出现过这种情况），所以离企业级 BI Agent 还有一段距离，各位用户请慎用此功能。
+
+### 2026-05-09
+本次将实验版 BI Agent 服务正式迭代为 BI Agent 1.0，主要更新以下内容：
+- 前端增加了对 agent 对话模式和 workflow 对话模式的区分，两者分别使用了不同的 React 组件
+- 后端对 agent 对话模式进行兼容，包括数据库、API等，同时利用非常优秀的 DeepAgents 框架对 BI Agent 进行记忆管理、上下文工程、状态管理、工具管理等
+- 在 BI Agent 1.0 版本中，增加了 SQL Audit（SQL审计） 机制，保证 sql 始终是低风险和高安全的。
+
 ### 2026-04-27
 本次对实验版 BI Agent 服务进行小版本迭代，主要优化内容：持久化存储对话产生的记忆，解耦 SQL 生成工具，减少 Token 消耗量。
-
-### 2026-04-23
-本次对实验版 BI Agent 服务进行小版本迭代，主要是优化了上下文工程、工具架构和 API。重点是优化了 BI Agent 的永久记忆文件，修复了无法多轮对话的问题，解决 SKILL 的冗余和重复，清理了一些没有使用过的工具、函数和代码。
 
 ## ✨ 主要特性
 
@@ -66,9 +73,14 @@
   <img src="./demo/data.png" width="900">
 </p>
 
-### 聊天界面
+### 工作流聊天界面
 <p align="center">
-  <img src="./demo/chat.png" width="900">
+  <img src="./demo/chat-workflow.png" width="900">
+</p>
+
+### Agent 聊天界面
+<p align="center">
+  <img src="./demo/chat-agent.png" width="900">
 </p>
 
 更多项目预览信息，请查看产品使用手册（正在完善中）
@@ -137,42 +149,77 @@ docker-compose -f docker-compose.dev.yml up -d
 ```
 volo-data/
 ├── main.py                    # 🏁 应用入口
+├── dependencies.py            # 🔗 依赖注入
+├── redis_client.py            # 📡 Redis 客户端
+├── entrypoint.sh              # 🚀 Docker 入口脚本
 ├── requirements.txt           # 📦 Python 依赖
+├── pyproject.toml             # 📋 项目配置
 ├── Dockerfile                 # 🐳 Docker 配置
 ├── docker-compose.yml         # 🧩 完整环境配置
 ├── docker-compose.dev.yml     # 💻 开发环境配置
-├── alembic.ini               # 🔄 数据库迁移配置
-├── redis_client.py           # 📡 Redis 客户端
+├── alembic.ini                # 🔄 数据库迁移配置
 │
-├── config/                   # ⚙️ 配置模块
-│   ├── database.py          # 数据库配置
-│   ├── logging_config.py    # 日志配置
-│   ├── models.py            # SQLAlchemy 模型
-│   └── parameter.py         # 参数配置
+├── config/                    # ⚙️ 配置模块
+│   ├── database.py            # 数据库配置
+│   ├── logging_config.py      # 日志配置
+│   ├── models.py              # SQLAlchemy 模型
+│   └── parameter.py           # 参数配置
 │
-├── routers/                 # 🛤️ API 路由
-│   ├── connection.py        # 数据源连接
-│   ├── conversation.py      # 对话管理
-│   ├── database.py          # 数据库操作
-│   ├── generate.py          # 任务生成
-│   └── log.py               # 日志查询
+├── routers/                   # 🛤️ API 路由
+│   ├── agent.py               # Agent 对话路由
+│   ├── auth.py                # 认证路由
+│   ├── connection.py          # 数据源连接
+│   ├── conversation.py        # 对话管理
+│   ├── database.py            # 数据库操作
+│   ├── generate.py            # 任务生成
+│   └── log.py                 # 日志查询
 │
-├── services/                # 🧩 业务逻辑
-│   ├── db.py                # 数据库业务
-│   ├── graph.py             # 图相关操作
-│   ├── graph_sse.py         # SSE 流式响应
-│   ├── tools.py             # 工具函数
-│   ├── prompt.py            # 提示词管理
-│   ├── vanna.py             # SQL 生成
-│   └── log.py               # 日志业务
+├── services/                  # 🧩 业务逻辑
+│   ├── auth.py                # 认证服务
+│   ├── db.py                  # 数据库业务
+│   ├── graph.py               # 图相关操作
+│   ├── graph_sse.py           # SSE 流式响应
+│   ├── tools.py               # 工具函数
+│   ├── prompt.py              # 提示词管理
+│   ├── vanna_service.py       # SQL 生成
+│   └── log.py                 # 日志业务
 │
-├── middlewares/             # 🔧 中间件
-│   ├── api_key_middleware.py # API Key 认证
-│   └── logging.py            # 日志中间件
+├── middlewares/               # 🔧 中间件
+│   ├── api_key_middleware.py  # API Key 认证
+│   └── logging.py             # 日志中间件
 │
-├── vanna/                   # 🤖 Vanna SQL 生成
-├── frontend/                # 🎨 Next.js 前端
-└── alembic/                 # 🔁 数据库迁移
+├── experimental_agent/        # 🧪 BI Agent 服务
+│   ├── agent.py               # Agent 核心逻辑
+│   ├── context.py             # 上下文管理
+│   ├── tools.py               # Agent 工具集
+│   ├── server.py              # Agent 服务端
+│   ├── memories/              # 记忆存储
+│   └── skills/                # Agent 技能
+│       ├── chart-expert/      # 图表专家
+│       ├── report-writer/     # 报告生成
+│       └── sql-optimizer/     # SQL 优化
+│
+├── langchain_sandbox/         # 🔒 代码沙箱
+│   └── pyodide.py             # Pyodide 沙箱实现
+│
+├── tests/                     # 🧪 测试
+│   └── test_basic.py          # 基础测试
+│
+├── vanna/                     # 🤖 Vanna SQL 生成
+├── frontend/                  # 🎨 Next.js 前端
+│   └── src/
+│       ├── app/               # 页面路由
+│       ├── components/        # UI 组件
+│       │   ├── Chat/          # 聊天组件
+│       │   ├── DataSource/    # 数据源组件
+│       │   ├── Sidebar/       # 侧边栏组件
+│       │   └── ui/            # 通用 UI 组件
+│       ├── i18n/              # 国际化
+│       ├── lib/               # 工具库
+│       └── store/             # 状态管理
+│
+└── alembic/                   # 🔁 数据库迁移
+    └── versions/              # 迁移版本
 ```
 
 ### 本地开发
@@ -270,10 +317,12 @@ alembic downgrade -1
 
 ### 即将发布的功能特性
 
-- 使用优秀的 Harness 替代传统的工作流编排，让 VoloData 成为正在的 Agent。
-- 增加数据审计层，让数据库访问更加安全可靠。
 - 增加数据源权限设置，支持企业级数据源管理。
 - 增加人机交互感，让工作流程透明、可视化、自主可控。
+
+### 正在规划的功能特性
+
+- 更多的 Agent Skill 
 
 ## 📄 许可证
 

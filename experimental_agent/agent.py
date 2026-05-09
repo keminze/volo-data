@@ -52,11 +52,22 @@ load_dotenv()
 _REDIS_URL = os.getenv("REDIS_AGENT_URL", f"redis://:{os.getenv('REDIS_PASSWORD', '')}@{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}/0")
 
 # ─── 全局共享 Store（长期记忆，跨会话持久，Redis 存储）─────────────────────────
-agent_store = AsyncRedisStore(redis_url=_REDIS_URL)
+# 必须在 async 上下文中创建（AsyncRedisStore.__init__ 需要 running event loop）
+agent_store: AsyncRedisStore | None = None
 
 
 # ─── Checkpointer（会话状态持久化，Redis 存储）─────────────────────────────────
-_checkpointer = AsyncRedisSaver(redis_url=_REDIS_URL)
+_checkpointer: AsyncRedisSaver | None = None
+
+
+async def init_store_and_checkpointer() -> None:
+    """在 async 上下文中初始化 Store 和 Checkpointer。
+
+    必须在 FastAPI lifespan 的 startup 阶段调用。
+    """
+    global agent_store, _checkpointer
+    agent_store = AsyncRedisStore(redis_url=_REDIS_URL)
+    _checkpointer = AsyncRedisSaver(redis_url=_REDIS_URL)
 
 # ─── 技能文件路径（相对于本文件）─────────────────────────────────────────────
 _SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
@@ -78,6 +89,7 @@ SYSTEM_PROMPT = """"
 - 数值保留 3 位小数，不自行换算单位
 - 简单计算（分↔元、百分比、加减乘除）直接在回复里算，不调用工具
 - 数据为空时，30字内简短说明
+- **严禁在回复文本中输出工具调用的 JSON 参数**（如 chart_type、x_col、need_chart 等），工具参数由系统自动处理，用户看不到也不需要看到
 
 ## SQL 工具规则（核心约束）
 
@@ -107,7 +119,7 @@ SYSTEM_PROMPT = """"
 
 ## 图表与报告
 - 用户要求可视化时，调用 `generate_charts`
-- 用户要求分析结论/解读时，调用 `generate_analysis_report`
+- 用户要求分析结论/解读时，利用 report-writer skill 生成报告（无需额外工具调用）
 - 用户只问一个指标时，不主动生成图表或报告
 
 ## 决策边界
@@ -118,6 +130,11 @@ SYSTEM_PROMPT = """"
 ## 记忆管理
 - 仅当用户明确说”记住””保存偏好”时，调用 `save_user_preference`
 - 不主动修改记忆，不保存临时任务信息
+
+## 长对话压缩
+- 当对话轮次较多（10+ 轮）或上下文接近 token 上限时，调用 `compact_conversation` 压缩历史
+- 压缩后保留关键信息（数据源、查询结论、用户偏好），丢弃中间过程细节
+- 压缩是不可逆操作，仅在必要时使用
 
 ## HITL / 人工确认
 - 出现确认请求时，展示工具名称、参数、可选操作（approve / edit / reject）
@@ -131,8 +148,8 @@ SYSTEM_PROMPT = """"
 4. **必须**调用 `audit_sql` 对生成的 SQL 进行审计记录
 5. **必须**调用 `execute_sql` 执行 SQL（若未审计，execute_sql 将拒绝执行）
 6. 如需复杂计算，调用 `generate_compute_code` + `run_compute`
-7. 如需图表/报告，调用 `generate_charts` / `generate_analysis_report`
-8. 返回结果
+7. 如需图表，调用 `generate_charts`；如需报告，直接利用 report-writer skill 生成（无需工具调用）
+8. 返回结果，需要注意的是返回的结果中，不允许包含工具调用的结果，工具调用结果只为你提供参考，用户看不到也不需要看到
 """
 
 # ─── 技能文件加载 ─────────────────────────────────────────────────────────────
@@ -276,6 +293,15 @@ def create_analyst_agent(
     final_prompt = (system_prompt + "\n\n" if system_prompt else "") + SYSTEM_PROMPT
 
     # ── 7. 构建 Agent ────────────────────────────────────────────────────────
+    # SummarizationToolMiddleware：暴露 compact_conversation 工具，支持手动压缩长对话
+    agent_middleware = []
+    if resolved_model is not None:
+        summarization_tool_mw = create_summarization_tool_middleware(
+            model=resolved_model,
+            backend=StateBackend(),
+        )
+        agent_middleware.append(summarization_tool_mw)
+
     agent = create_deep_agent(
         model=resolved_model,
         tools=DATA_ANALYSIS_TOOLS,
@@ -288,6 +314,8 @@ def create_analyst_agent(
         # 后端：/memories/ 持久化到 Store
         backend=_make_backend,
         store=agent_store,
+        # 用户中间件：compact_conversation 工具
+        middleware=agent_middleware,
         # HITL：仅在 hitl_tools 中的工具执行前暂停确认（默认空，不阻断）
         interrupt_on=interrupt_config,
         # Checkpointer：持久化会话状态（HITL resume 必须）

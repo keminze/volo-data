@@ -125,6 +125,13 @@ class Conversation(Base):
         comment="对话描述",
     )
 
+    mode: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="workflow",
+        comment="对话模式：workflow（智能BI工作流）/ agent（BI Agent）",
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     db_connection: Mapped["DBConnection"] = relationship(
@@ -152,6 +159,7 @@ class Conversation(Base):
             "name": self.name,
             "connection_id": self.connection_id,
             "description": self.description,
+            "mode": self.mode,
             "created_at": self.created_at,
         }
 
@@ -197,6 +205,12 @@ class Message(Base):
         comment="ECharts 图表数据",
     )
 
+    tool_calls: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="本轮工具调用记录",
+    )
+
     compute_code: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -216,6 +230,12 @@ class Message(Base):
         back_populates="messages",
     )
 
+    tool_call_records: Mapped[list["ToolCall"]] = relationship(
+        "ToolCall",
+        back_populates="message",
+        cascade="all, delete-orphan",
+    )
+
     def get_info(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -224,8 +244,50 @@ class Message(Base):
             "sql": self.sql,
             "sample_data": self.sample_data,
             "charts": self.charts,
+            "tool_calls": self.tool_calls,
             "compute_code": self.compute_code,
             "code_result": self.code_result,
+            "created_at": self.created_at,
+        }
+
+
+class ToolCall(Base):
+    __tablename__ = "tool_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    message_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    tool_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="工具名称"
+    )
+
+    tool_args: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="工具调用参数"
+    )
+
+    tool_result: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="工具返回结果"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    message: Mapped["Message"] = relationship(
+        "Message",
+        back_populates="tool_call_records",
+    )
+
+    def get_info(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tool_name": self.tool_name,
+            "tool_args": self.tool_args,
+            "tool_result": self.tool_result,
             "created_at": self.created_at,
         }
 

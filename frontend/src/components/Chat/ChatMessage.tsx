@@ -17,6 +17,9 @@ export default function ChatMessage({ msgdata, isStreaming, isGeneratingSQL, isG
   const isUser = msgdata.role === "user";
   const isGen = msgdata.id < 0;
 
+  // 预处理：转义波浪号，避免被 remarkGfm 解析为删除线
+  const escapeTildes = (text: string) => text.replace(/~/g, "\\~");
+
   function childrenContainsPre(node: React.ReactNode): boolean {
     if (!node) return false;
     if (Array.isArray(node)) {
@@ -241,7 +244,7 @@ export default function ChatMessage({ msgdata, isStreaming, isGeneratingSQL, isG
                 },
               }}
             >
-              {msgdata.content}
+              {escapeTildes(msgdata.content)}
             </ReactMarkdown>
           </div>
 

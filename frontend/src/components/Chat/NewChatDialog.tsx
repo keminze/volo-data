@@ -17,9 +17,10 @@ import { useDataSourceStore, useExampleDataSourceStore } from "@/store/dataSourc
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialMode?: string;
 }
 
-export function NewChatDialog({ open, onOpenChange }: Props) {
+export function NewChatDialog({ open, onOpenChange, initialMode = "workflow" }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
   const { refreshChats } = useChatStore();
@@ -30,13 +31,15 @@ export function NewChatDialog({ open, onOpenChange }: Props) {
     if (open) {
       fetchDataSources();
       fetchExampleDataSources();
+      setForm((prev) => ({ ...prev, mode: initialMode }));
     }
-  }, [open, fetchDataSources,fetchExampleDataSources]);
+  }, [open, fetchDataSources, fetchExampleDataSources, initialMode]);
 
   const [form, setForm] = useState({
     name: "",
     description: "",
     connection_id: "",
+    mode: initialMode,
   });
 
   const [loading, setLoading] = useState(false);
@@ -60,12 +63,14 @@ export function NewChatDialog({ open, onOpenChange }: Props) {
         name: form.name,
         description: form.description,
         connection_id: Number(form.connection_id),
+        mode: form.mode,
       });
 
       const newChat = {
         id: res?.conversation_id,
         name: form.name,
         connection_id: Number(form.connection_id),
+        mode: form.mode,
       };
 
       refreshChats();
@@ -90,6 +95,20 @@ export function NewChatDialog({ open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* 对话模式 */}
+          <div>
+            <label className="text-sm text-gray-600">{t("chat.mode")}</label>
+            <Select onValueChange={(v) => handleChange("mode", v)} value={form.mode}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("chat.mode")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="workflow">{t("chat.workflowMode")}</SelectItem>
+                <SelectItem value="agent">{t("chat.agentMode")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* 聊天名称 */}
           <div>
             <label className="text-sm text-gray-600">{t("chat.chatName")}</label>

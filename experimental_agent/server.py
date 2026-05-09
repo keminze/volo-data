@@ -30,6 +30,28 @@ load_dotenv()
 
 from experimental_agent.agent import create_analyst_agent, ensure_user_memories, init_agent_store
 from experimental_agent.context import AgentContext, DatasourceConfig
+from redis_client import redis_client
+
+
+# Redis key for session → hitl_tools mapping persistence
+_REDIS_HITL_KEY = "session_hitl_map"
+
+
+async def _load_session_hitl_map() -> dict[str, list[str]]:
+    """从 Redis 加载 session → hitl_tools 映射（服务启动时调用）。"""
+    try:
+        raw = await redis_client.hgetall(_REDIS_HITL_KEY)
+        return {k.decode() if isinstance(k, bytes) else k: json.loads(v) for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+async def _save_session_hitl_map(session_id: str, hitl_tools: list[str]) -> None:
+    """将 session → hitl_tools 映射持久化到 Redis。"""
+    try:
+        await redis_client.hset(_REDIS_HITL_KEY, session_id, json.dumps(hitl_tools, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 @asynccontextmanager
@@ -39,6 +61,9 @@ async def lifespan(app: FastAPI):
     await _checkpointer.asetup()
     await agent_store.setup()
     await init_agent_store()
+    # 从 Redis 恢复 session → hitl_tools 映射
+    global _session_hitl_map
+    _session_hitl_map = await _load_session_hitl_map()
     yield
 
 
@@ -242,6 +267,7 @@ async def chat(req: ChatRequest):
     # 记录 session 使用的 hitl_tools，供 get_session_state / resume 查找正确的 agent 实例
     if req.hitl_tools:
         _session_hitl_map[session_id] = req.hitl_tools
+        await _save_session_hitl_map(session_id, req.hitl_tools)
     is_multi_turn = req.session_id is not None  # 有 session_id 说明是多轮对话
     ctx = _build_context(req)
     # 确保用户记忆已初始化（首次对话时从模板预置）
@@ -345,6 +371,7 @@ async def chat_stream(req: ChatRequest):
     # 记录 session 使用的 hitl_tools
     if req.hitl_tools:
         _session_hitl_map[session_id] = req.hitl_tools
+        await _save_session_hitl_map(session_id, req.hitl_tools)
     is_multi_turn = req.session_id is not None
     ctx = _build_context(req)
     # 确保用户记忆已初始化（首次对话时从模板预置）

@@ -93,6 +93,15 @@ export default {
     creating: "创建中...",
     example: "示例",
     noDataSource: "暂无可用数据源",
+    mode: "对话模式",
+    workflowMode: "工作流",
+    agentMode: "Agent",
+    workflowSection: "工作流",
+    agentSection: "Agent",
+    toolCallsCount: "调用了 {{count}} 个工具",
+    toolArgs: "参数",
+    toolResult: "结果",
+    agentThinking: "Agent 思考中...",
   },
   // Common
   common: {

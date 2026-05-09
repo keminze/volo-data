@@ -11,6 +11,7 @@ export interface ChatResponse {
   name: string;
   connection_id: number;
   description?: string;
+  mode?: string;
   created_at?: string;
 }
 
@@ -18,6 +19,7 @@ export interface CreateChatRequest {
   name: string;
   connection_id: number;
   description?: string;
+  mode?: string;
 }
 
 export interface CreateChatResponse {
@@ -46,9 +48,11 @@ export async function createChat(request: CreateChatRequest) {
 
 /**
  * 🟣 获取聊天列表
+ * @param mode 可选模式筛选：workflow / agent
  */
-export async function listChat() {
-  return apiRequest<ChatResponse[]>("/conversations/list", {
+export async function listChat(mode?: string) {
+  const query = mode ? `?mode=${mode}` : "";
+  return apiRequest<ChatResponse[]>(`/conversations/list${query}`, {
     method: "GET",
   });
 }
@@ -104,6 +108,102 @@ export async function submitStreamTask(
         method: "POST",
         body: payload,
     })
+}
+
+/**
+ * 🟢 Agent 流式对话（SSE）
+ * 直接连接 /agent/chat/stream，事件类型：token / tool_start / tool_result / interrupt / done / error
+ */
+export async function agentStreamChat(
+  payload: {
+    conversation_id: number;
+    input: string;
+    language?: string;
+  },
+  handlers: {
+    onToken?: (text: string) => void;
+    onToolStart?: (data: { tool: string; args: any }) => void;
+    onToolResult?: (data: { tool: string; result: string }) => void;
+    onInterrupt?: (data: any) => void;
+    onDone?: () => void;
+    onError?: (err: any) => void;
+  }
+) {
+  try {
+    const token = getToken ? getToken() : null;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    } else if (process.env.NEXT_PUBLIC_BACKEND_API_KEY) {
+      headers["x-api-key"] = process.env.NEXT_PUBLIC_BACKEND_API_KEY;
+    }
+
+    const response = await fetch(`${API_BASE}/agent/chat/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split(/\r?\n\r?\n/);
+      buffer = parts.pop() || "";
+
+      for (const part of parts) {
+        if (!part.trim()) continue;
+
+        try {
+          const eventMatch = part.match(/^event:\s*(.+)$/m);
+          const dataMatch = part.match(/^data:\s*(.+)$/m);
+
+          if (!dataMatch) continue;
+          const event = eventMatch ? eventMatch[1].trim() : "message";
+          const data = JSON.parse(dataMatch[1]);
+
+          switch (event) {
+            case "token":
+              handlers.onToken?.(data.text || "");
+              break;
+            case "tool_start":
+              handlers.onToolStart?.(data);
+              break;
+            case "tool_result":
+              handlers.onToolResult?.(data);
+              break;
+            case "interrupt":
+              handlers.onInterrupt?.(data);
+              break;
+            case "done":
+              handlers.onDone?.();
+              break;
+            case "error":
+              handlers.onError?.(data);
+              break;
+          }
+        } catch (err) {
+          console.warn("Agent SSE parse error:", err, part);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Agent SSE stream error:", err);
+    handlers.onError?.(err);
+  }
 }
 
 export async function listenStreamTask(
